@@ -13,6 +13,15 @@ import type { SessionEvent, ToolCommitHint, RateLimitHit } from '../storage/type
 const SESSION_GAP_MS = 10 * 60_000;
 const COMMIT_HASH_RE = /^\[\S+\s+(?:\(root-commit\)\s+)?([a-f0-9]{7,40})\]/m;
 
+// Matches `git commit` as a sub-command: at string start or after a shell
+// separator (&& ; | newline). Catches `git add -A && git commit …`,
+// `cd "p" && git commit …`, and heredoc messages — the ~89% of real commit
+// commands the old start-anchored test missed. A literal inside an argument
+// (e.g. echo "git commit") is not preceded by a separator, so it won't match.
+export function isGitCommitCommand(cmd: string): boolean {
+  return /(?:^|&&|;|\||\n)\s*git\s+commit\b/.test(cmd);
+}
+
 interface JsonlEntry {
   type?: string;
   uuid?: string;
@@ -266,7 +275,7 @@ function extractCommitHintsFromSegment(
     for (const c of content as Array<any>) {
       if (c?.type === 'tool_use' && c?.name === 'Bash' && typeof c?.input?.command === 'string') {
         const cmd = c.input.command as string;
-        if (/^\s*git\s+commit\b/.test(cmd) && typeof c.id === 'string') {
+        if (isGitCommitCommand(cmd) && typeof c.id === 'string') {
           toolUseById.set(c.id, { command: cmd, ts });
         }
       } else if (c?.type === 'tool_result' && typeof c?.tool_use_id === 'string') {
