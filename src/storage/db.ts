@@ -287,23 +287,6 @@ export function getPrecedingSessions(
     .all(projectHash, commitTs, commitTs, windowMs) as unknown as SessionSpanRow[];
 }
 
-export function getSessionsInWindow(
-  db: DatabaseSync,
-  startMs: number,
-  endMs: number,
-  projectHash: string,
-): SessionEvent[] {
-  const rows = db
-    .prepare(
-      `SELECT * FROM events
-       WHERE type = 'session'
-         AND project_hash = ?
-         AND session_end_ms BETWEEN ? AND ?`,
-    )
-    .all(projectHash, startMs, endMs) as unknown as SessionEvent[];
-  return rows;
-}
-
 export function getTopExpensiveSessions(
   db: DatabaseSync,
   fromMs: number,

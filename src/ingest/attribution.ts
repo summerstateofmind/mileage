@@ -3,7 +3,8 @@ import {
   insertAttribution,
   resolveFullCommitHash,
   getUnattributedCommitsSince,
-  getSessionsInWindow,
+  getSessionsSpanningCommit,
+  getPrecedingSessions,
 } from '../storage/db';
 import type { ToolCommitHint } from '../storage/types';
 
@@ -43,8 +44,6 @@ export function decideAttribution(
   return { session_id: best.session_id, tier: 'inferred', confidence: 0.5 };
 }
 
-const INFERRED_WINDOW_MS = 5 * 60_000;
-
 export function attributeDirect(
   db: DatabaseSync,
   hints: ToolCommitHint[],
@@ -67,30 +66,31 @@ export function attributeDirect(
   return written;
 }
 
+// Emits `high` (unique same-repo session spanning the commit) or `inferred`
+// (gap commit → nearest preceding same-repo session), and abstains when two+
+// same-repo sessions span the commit. `direct` hints are applied separately.
 export function attributeInferred(db: DatabaseSync, sinceMs: number): number {
   const commits = getUnattributedCommitsSince(db, sinceMs);
   let written = 0;
   for (const c of commits) {
-    const start = c.timestamp - INFERRED_WINDOW_MS;
-    const end = c.timestamp + INFERRED_WINDOW_MS;
-    const candidates = getSessionsInWindow(db, start, end, c.project_hash);
-    if (candidates.length === 0) continue;
-
-    let best = candidates[0];
-    let bestDiff = Math.abs(best.session_end_ms - c.timestamp);
-    for (let i = 1; i < candidates.length; i++) {
-      const diff = Math.abs(candidates[i].session_end_ms - c.timestamp);
-      if (diff < bestDiff) {
-        best = candidates[i];
-        bestDiff = diff;
-      }
-    }
-
+    const spanning = getSessionsSpanningCommit(
+      db,
+      c.timestamp,
+      c.project_hash,
+      SPAN_LEAD_MS,
+      SPAN_GRACE_MS,
+    );
+    const preceding =
+      spanning.length === 0
+        ? getPrecedingSessions(db, c.timestamp, c.project_hash, PRECEDING_WINDOW_MS)
+        : [];
+    const decision = decideAttribution(spanning, preceding);
+    if (!decision) continue;
     insertAttribution(db, {
-      session_id: best.session_id,
+      session_id: decision.session_id,
       commit_hash: c.commit_hash,
-      tier: 'inferred',
-      confidence: 0.5,
+      tier: decision.tier,
+      confidence: decision.confidence,
     });
     written++;
   }
