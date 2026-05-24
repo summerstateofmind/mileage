@@ -2,7 +2,7 @@
 
 **See what your AI coding tools actually cost per shipped feature.**
 
-Mileage is a local-first CLI that correlates your AI token spend with real git outcomes — commits, code survival, rate-limit hits — and surfaces the bank-statement-for-AI-spend moment. Built for solo developers spending $100–1,500/mo on AI tools who want concrete answers, not opaque dashboards.
+Mileage is a local-first CLI that correlates your AI token spend with real git outcomes — commits, code survival, rate-limit hits — and surfaces the bank-statement-for-AI-spend moment. Built for developers spending $100–1,500/mo on AI tools who want helpful data.
 
 ```
 Mileage  ·  this week  ·  May 16 – May 23
