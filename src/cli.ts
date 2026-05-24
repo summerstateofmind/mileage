@@ -71,7 +71,7 @@ function runSync(db: DatabaseSync, opts: SyncOpts): void {
   console.log(
     `Synced ${cc.sessionsIngested} sessions across ${cc.filesScanned} JSONL files, ` +
       `${git.commitsIngested} commits, ` +
-      `${direct + inferred} attributions (${direct} direct, ${inferred} inferred), ` +
+      `${direct + inferred} attributions (${direct} direct, ${inferred} by time-window), ` +
       `${cc.rateLimitHitsIngested} rate-limit hits, ` +
       `${survival.evaluated} survival evaluations, ` +
       `${snaps} snapshots`,
