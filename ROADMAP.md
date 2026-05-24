@@ -38,19 +38,19 @@ See `docs/superpowers/plans/2026-05-23-v0.2-phase2a.md` and `docs/superpowers/sp
 - [x] **0.2.a5** — Plan-aware `mileage show`: API view (dollars lead) / Subscription view (tokens + cap-equivalent + rate-limit hits prominent) / Unknown view (banner prompt)
 - [x] **0.2.a6** — Verified end-to-end on author's Max-100 data — 196 sessions, 100 commits, 0 false-positive rate-limit hits
 
-### V0.2 Phase 2b — Sticky behavioral features
+### V0.2 Phase 2b — Sticky behavioral features (COMPLETE 2026-05-23)
 
-- [ ] **0.2.b1** — Self-tag system (`mileage tag`): interactive single-keypress tagging with pre-commit reflection prompt
-- [ ] **0.2.b2** — Git post-commit hook installer (`mileage install-hook`); auto-syncs on commit, enables High-tier attribution
-- [ ] **0.2.b3** — Behavioral pattern detection (time-of-day, day-of-week, model × outcome correlations)
-- [ ] **0.2.b4** — Code Survival Rate (7d) — pulled forward from V0.3 for Max-plan quality signal
+- [x] **0.2.b1** — `mileage tag` (interactive single-keypress tagging: shipped / exploring / debugging / dead-end)
+- [x] **0.2.b2** — `mileage install-hook` / `uninstall-hook` (cross-platform: bash for *nix, .cmd for Windows)
+- [x] **0.2.b3** — Behavioral pattern detection (time-of-day, day-of-week, model × outcome, long-expensive-zero-commit)
+- [x] **0.2.b4** — Code Survival Rate 7d (file-level approximation; pulled forward from V0.3). Verified: 82% survival on author's data over 12 commits.
 
-### V0.2 Phase 2c — Visual polish + brand artifact
+### V0.2 Phase 2c — Visual polish + brand artifact (COMPLETE 2026-05-23)
 
-- [ ] **0.2.c1** — Heatmap renderer (GitHub-contribution-graph style, ANSI 256-color, color = efficiency)
-- [ ] **0.2.c2** — Sparklines + bar charts (model breakdown, daily spend trend)
-- [ ] **0.2.c3** — `mileage report --week` — copy-pasteable markdown summary (brand-building artifact)
-- [ ] **0.2.c4** — `mileage review` — interactive weekly forcing function (the perception/reality loop-breaker)
+- [x] **0.2.c1** — Heatmap renderer (`mileage show --heatmap`, ANSI 256-color, 90-day grid, color = efficiency)
+- [x] **0.2.c2** — Sparkline + bar chart helpers (`src/render/charts.ts`)
+- [x] **0.2.c3** — `mileage report --week` — copy-pasteable markdown summary (the brand-building artifact)
+- [x] **0.2.c4** — `mileage review` — interactive weekly forcing function
 
 ---
 

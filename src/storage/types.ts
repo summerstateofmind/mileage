@@ -48,6 +48,25 @@ export interface MileageConfig {
   };
 }
 
+export type SessionTag = 'shipped' | 'exploring' | 'debugging' | 'dead-end';
+
+export interface SessionTagRow {
+  session_id: string;
+  tag: SessionTag;
+  tagged_at: number;
+}
+
+export interface CommitSurvivalRow {
+  commit_hash: string;
+  project_hash: string;
+  evaluated_at: number;
+  lines_added: number;
+  lines_surviving: number;
+  files_touched: number;
+  files_revisited: number;
+  window_days: number;
+}
+
 export interface RateLimitHit {
   id: string;
   timestamp: number;

@@ -12,6 +12,9 @@ import {
   isApiPlan,
 } from '../config/plan';
 import { computeTierFlex, TierFlexResult } from '../compute/tier_flex';
+import { detectPatterns, PatternFinding } from '../compute/patterns';
+import { getSurvivalSummarySince, SurvivalSummary } from '../compute/survival';
+import { sparkline } from './charts';
 import type {
   Snapshot,
   TopSession,
@@ -147,6 +150,30 @@ function renderRateLimitLine(hits: RateLimitHit[]): string {
   return `  Rate-limit hits   ${yellow('⚠ ' + hits.length)} this week  ${dim(`(${examples}${more})`)}`;
 }
 
+function renderPatternsBlock(patterns: PatternFinding[]): string[] {
+  if (patterns.length === 0) return [];
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(dim('  Patterns I noticed (last 30 days):'));
+  for (const p of patterns.slice(0, 2)) {
+    lines.push('  ' + yellow('→ ') + p.headline);
+    if (p.detail) lines.push('    ' + dim(p.detail));
+  }
+  return lines;
+}
+
+function renderSurvivalBlock(s: SurvivalSummary): string[] {
+  if (s.commits_evaluated === 0 || s.rate === null) return [];
+  const pct = (s.rate * 100).toFixed(0);
+  const color = s.rate >= 0.9 ? green : s.rate >= 0.7 ? yellow : red;
+  const lines: string[] = [];
+  lines.push('');
+  lines.push(
+    `  Code health       ${color(pct + '%')} of AI-attributed lines still alive at 7d   ${dim(`(${s.commits_evaluated} commit${s.commits_evaluated === 1 ? '' : 's'} evaluated)`)}`,
+  );
+  return lines;
+}
+
 function renderTierFlexBlock(tier: TierFlexResult): string[] {
   const lines: string[] = [];
   if (tier.rows.length < 2 && !tier.warning) return lines;
@@ -235,27 +262,34 @@ export function renderLast7Days(
   );
   const rateHits = getRateLimitHitsSince(db, last7Start);
   const tierFlex = computeTierFlex(db, now - 30 * 86400_000);
+  const patterns = detectPatterns(db, now - 30 * 86400_000);
+  const survival = getSurvivalSummarySince(db, last7Start, projectHash);
+  const ctx: RenderCtx = {
+    cfg, last7Start, now, curr, prev,
+    topSessions, rateHits, tierFlex, patterns, survival, last7,
+  };
 
-  if (isApiPlan(cfg.plan)) {
-    return renderApiView(cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, last7);
-  }
-  if (isSubscriptionPlan(cfg.plan)) {
-    return renderSubscriptionView(cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, last7);
-  }
-  return renderUnknownView(cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, last7);
+  if (isApiPlan(cfg.plan)) return renderApiView(ctx);
+  if (isSubscriptionPlan(cfg.plan)) return renderSubscriptionView(ctx);
+  return renderUnknownView(ctx);
 }
 
-function renderApiView(
-  cfg: MileageConfig,
-  last7Start: number,
-  now: number,
-  curr: WindowAgg,
-  prev: WindowAgg,
-  topSessions: TopSession[],
-  rateHits: RateLimitHit[],
-  tierFlex: TierFlexResult,
-  last7: Snapshot[],
-): string {
+interface RenderCtx {
+  cfg: MileageConfig;
+  last7Start: number;
+  now: number;
+  curr: WindowAgg;
+  prev: WindowAgg;
+  topSessions: TopSession[];
+  rateHits: RateLimitHit[];
+  tierFlex: TierFlexResult;
+  patterns: PatternFinding[];
+  survival: SurvivalSummary;
+  last7: Snapshot[];
+}
+
+function renderApiView(ctx: RenderCtx): string {
+  const { cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, patterns, survival, last7 } = ctx;
   const lines: string[] = [];
   const totalTokens = curr.total_tokens_in + curr.total_tokens_out;
 
@@ -316,7 +350,9 @@ function renderApiView(
     }
   }
 
+  lines.push(...renderSurvivalBlock(survival));
   lines.push(...renderTierFlexBlock(tierFlex));
+  lines.push(...renderPatternsBlock(patterns));
   lines.push(...renderProjectBreakdown(last7, true));
 
   if (curr.session_count === 0 && curr.commit_count === 0) {
@@ -337,17 +373,8 @@ function renderApiView(
   return lines.join('\n');
 }
 
-function renderSubscriptionView(
-  cfg: MileageConfig,
-  last7Start: number,
-  now: number,
-  curr: WindowAgg,
-  prev: WindowAgg,
-  topSessions: TopSession[],
-  rateHits: RateLimitHit[],
-  tierFlex: TierFlexResult,
-  last7: Snapshot[],
-): string {
+function renderSubscriptionView(ctx: RenderCtx): string {
+  const { cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, patterns, survival, last7 } = ctx;
   const lines: string[] = [];
   const totalTokens = curr.total_tokens_in + curr.total_tokens_out;
   const prevTokens = prev.total_tokens_in + prev.total_tokens_out;
@@ -409,7 +436,9 @@ function renderSubscriptionView(
     }
   }
 
+  lines.push(...renderSurvivalBlock(survival));
   lines.push(...renderTierFlexBlock(tierFlex));
+  lines.push(...renderPatternsBlock(patterns));
   lines.push(...renderProjectBreakdown(last7, false));
 
   if (curr.session_count === 0 && curr.commit_count === 0) {
@@ -432,18 +461,8 @@ function renderSubscriptionView(
   return lines.join('\n');
 }
 
-function renderUnknownView(
-  cfg: MileageConfig,
-  last7Start: number,
-  now: number,
-  curr: WindowAgg,
-  prev: WindowAgg,
-  topSessions: TopSession[],
-  rateHits: RateLimitHit[],
-  tierFlex: TierFlexResult,
-  last7: Snapshot[],
-): string {
-  const apiOut = renderApiView(cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, last7);
+function renderUnknownView(ctx: RenderCtx): string {
+  const apiOut = renderApiView(ctx);
   const banner =
     '\n' +
     yellow(

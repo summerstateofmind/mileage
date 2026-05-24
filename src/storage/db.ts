@@ -8,6 +8,8 @@ import type {
   Snapshot,
   TopSession,
   RateLimitHit,
+  SessionTag,
+  SessionTagRow,
 } from './types';
 
 export function openDb(): DatabaseSync {
@@ -257,6 +259,81 @@ export function getTopExpensiveSessions(
        LIMIT ?`,
     )
     .all(...(params as never[])) as unknown as TopSession[];
+  return rows;
+}
+
+export function setSessionTag(
+  db: DatabaseSync,
+  sessionId: string,
+  tag: SessionTag,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO session_tags (session_id, tag, tagged_at)
+     VALUES (?, ?, ?)`,
+  ).run(sessionId, tag, Date.now());
+}
+
+export function getSessionTag(
+  db: DatabaseSync,
+  sessionId: string,
+): SessionTagRow | null {
+  const row = db
+    .prepare(`SELECT session_id, tag, tagged_at FROM session_tags WHERE session_id = ?`)
+    .get(sessionId) as unknown as SessionTagRow | undefined;
+  return row ?? null;
+}
+
+export function getAllTagsSince(
+  db: DatabaseSync,
+  sinceMs: number,
+): Map<string, SessionTag> {
+  const rows = db
+    .prepare(
+      `SELECT st.session_id, st.tag
+       FROM session_tags st
+       JOIN events e ON e.session_id = st.session_id
+       WHERE e.timestamp >= ?`,
+    )
+    .all(sinceMs) as unknown as { session_id: string; tag: SessionTag }[];
+  const out = new Map<string, SessionTag>();
+  for (const r of rows) out.set(r.session_id, r.tag);
+  return out;
+}
+
+export interface UntaggedSession {
+  session_id: string;
+  timestamp: number;
+  cost_usd: number;
+  duration_ms: number;
+  model_id: string;
+  attr_count: number;
+}
+
+export function getUntaggedSessionsSince(
+  db: DatabaseSync,
+  sinceMs: number,
+  minCostUsd: number = 1,
+  limit: number = 20,
+): UntaggedSession[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         e.session_id,
+         e.timestamp,
+         e.cost_usd,
+         (e.session_end_ms - e.timestamp) AS duration_ms,
+         COALESCE(e.model_id, 'unknown') AS model_id,
+         (SELECT COUNT(*) FROM attributions a WHERE a.session_id = e.session_id) AS attr_count
+       FROM events e
+       LEFT JOIN session_tags st ON st.session_id = e.session_id
+       WHERE e.type = 'session'
+         AND e.timestamp >= ?
+         AND e.cost_usd >= ?
+         AND st.session_id IS NULL
+       ORDER BY e.cost_usd DESC
+       LIMIT ?`,
+    )
+    .all(sinceMs, minCostUsd, limit) as unknown as UntaggedSession[];
   return rows;
 }
 

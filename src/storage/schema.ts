@@ -45,6 +45,26 @@ CREATE TABLE IF NOT EXISTS attributions (
 
 CREATE INDEX IF NOT EXISTS idx_attr_commit ON attributions(commit_hash);
 
+CREATE TABLE IF NOT EXISTS commit_survival (
+  commit_hash      TEXT NOT NULL,
+  project_hash     TEXT NOT NULL,
+  evaluated_at     INTEGER NOT NULL,
+  lines_added      INTEGER NOT NULL,
+  lines_surviving  INTEGER NOT NULL,
+  files_touched    INTEGER NOT NULL,
+  files_revisited  INTEGER NOT NULL,
+  window_days      INTEGER NOT NULL,
+  PRIMARY KEY (commit_hash, window_days)
+);
+
+CREATE INDEX IF NOT EXISTS idx_survival_proj ON commit_survival(project_hash, evaluated_at);
+
+CREATE TABLE IF NOT EXISTS session_tags (
+  session_id  TEXT PRIMARY KEY,
+  tag         TEXT NOT NULL CHECK (tag IN ('shipped','exploring','debugging','dead-end')),
+  tagged_at   INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS rate_limit_hits (
   id          TEXT PRIMARY KEY,
   timestamp   INTEGER NOT NULL,
