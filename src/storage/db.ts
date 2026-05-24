@@ -242,6 +242,51 @@ export function getUnattributedCommitsSince(
   return rows;
 }
 
+export interface SessionSpanRow {
+  session_id: string;
+  session_end_ms: number;
+}
+
+// Sessions whose active span [timestamp - leadMs, session_end_ms + graceMs]
+// contains commitTs, restricted to one project. Used for the `high` tier and
+// the concurrency-abstain check.
+export function getSessionsSpanningCommit(
+  db: DatabaseSync,
+  commitTs: number,
+  projectHash: string,
+  leadMs: number,
+  graceMs: number,
+): SessionSpanRow[] {
+  return db
+    .prepare(
+      `SELECT session_id, session_end_ms FROM events
+       WHERE type = 'session'
+         AND project_hash = ?
+         AND (timestamp - ?) <= ?
+         AND ? <= (session_end_ms + ?)`,
+    )
+    .all(projectHash, leadMs, commitTs, commitTs, graceMs) as unknown as SessionSpanRow[];
+}
+
+// Same-project sessions that ended within windowMs before commitTs (gap-commit
+// fallback). Used only when no session spans the commit.
+export function getPrecedingSessions(
+  db: DatabaseSync,
+  commitTs: number,
+  projectHash: string,
+  windowMs: number,
+): SessionSpanRow[] {
+  return db
+    .prepare(
+      `SELECT session_id, session_end_ms FROM events
+       WHERE type = 'session'
+         AND project_hash = ?
+         AND session_end_ms <= ?
+         AND session_end_ms >= (? - ?)`,
+    )
+    .all(projectHash, commitTs, commitTs, windowMs) as unknown as SessionSpanRow[];
+}
+
 export function getSessionsInWindow(
   db: DatabaseSync,
   startMs: number,
