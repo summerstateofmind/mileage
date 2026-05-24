@@ -3,8 +3,18 @@ import {
   getSnapshotsSince,
   getTopExpensiveSessions,
   getRateLimitHitsSince,
+  getProjectNameMap,
 } from '../storage/db';
-import { bold, dim, green, red, cyan, yellow } from './ansi';
+import {
+  bold,
+  dim,
+  green,
+  red,
+  cyan,
+  yellow,
+  magenta,
+  brightCyan,
+} from './ansi';
 import {
   readConfig,
   planDisplayName,
@@ -13,7 +23,10 @@ import {
 } from '../config/plan';
 import { computeTierFlex, TierFlexResult } from '../compute/tier_flex';
 import { detectPatterns, PatternFinding } from '../compute/patterns';
-import { getSurvivalSummarySince, SurvivalSummary } from '../compute/survival';
+import {
+  getSurvivalSummariesSince,
+  MultiWindowSurvival,
+} from '../compute/survival';
 import { sparkline } from './charts';
 import type {
   Snapshot,
@@ -125,7 +138,7 @@ function pctDelta(curr: number, prev: number, badIsHigher: boolean = true): stri
   const arrowColor = badIsHigher ? (direction ? red : green) : (direction ? green : red);
   const arrow = pct === 0 ? dim('=') : arrowColor(direction ? '▲' : '▼');
   const sign = pct > 0 ? '+' : '';
-  return `${arrow} ${sign}${pct.toFixed(0)}% vs prior week`;
+  return `${arrow} ${sign}${pct.toFixed(0)}% vs prior period`;
 }
 
 function commitsLine(s: TopSession): string {
@@ -154,7 +167,7 @@ function renderPatternsBlock(patterns: PatternFinding[]): string[] {
   if (patterns.length === 0) return [];
   const lines: string[] = [];
   lines.push('');
-  lines.push(dim('  Patterns I noticed (last 30 days):'));
+  lines.push(cyan('  Patterns I noticed') + dim(' (last 30 days)'));
   for (const p of patterns.slice(0, 2)) {
     lines.push('  ' + yellow('→ ') + p.headline);
     if (p.detail) lines.push('    ' + dim(p.detail));
@@ -162,16 +175,131 @@ function renderPatternsBlock(patterns: PatternFinding[]): string[] {
   return lines;
 }
 
-function renderSurvivalBlock(s: SurvivalSummary): string[] {
-  if (s.commits_evaluated === 0 || s.rate === null) return [];
-  const pct = (s.rate * 100).toFixed(0);
-  const color = s.rate >= 0.9 ? green : s.rate >= 0.7 ? yellow : red;
+function renderSurvivalBlock(m: MultiWindowSurvival): string[] {
+  const withData = m.windows.filter(
+    (w) => w.summary.commits_evaluated > 0 && w.summary.rate !== null,
+  );
+  if (withData.length === 0) return [];
+
+  const segments = withData.map((w) => {
+    const rate = w.summary.rate as number;
+    const pct = (rate * 100).toFixed(0);
+    const color = rate >= 0.9 ? green : rate >= 0.7 ? yellow : red;
+    return `${color(pct + '%')} alive at ${w.window_days}d`;
+  });
+  const counts = withData
+    .map((w) => `${w.summary.commits_evaluated} @ ${w.window_days}d`)
+    .join(', ');
+  return [
+    '',
+    `  Code health       ${segments.join('  ·  ')}   ${dim('(' + counts + ' commit evaluations)')}`,
+  ];
+}
+
+function yptScoreColor(ypt: number): (s: string) => string {
+  if (ypt >= 70) return green;
+  if (ypt >= 40) return yellow;
+  return red;
+}
+
+function renderYptFooter(
+  ypt: number | null,
+  hasSessions: boolean,
+  scope: string | undefined,
+): string {
+  if (ypt === null) {
+    if (!hasSessions) return '';
+    const hint = scope
+      ? `  ${dim('Try')} ${cyan('mileage --all')} ${dim('for a cross-project score.')}`
+      : `  ${dim('Tag a session with')} ${cyan('mileage tag')} ${dim('to make this window scorable.')}`;
+    return (
+      '  ' +
+      magenta(bold('YPT')) +
+      '  ' +
+      yellow('not scored') +
+      dim(' · no attributed commits or self-tags in this window.') +
+      '\n' +
+      hint
+    );
+  }
+  const color = yptScoreColor(ypt);
+  return (
+    '  ' +
+    magenta(bold('YPT')) +
+    '  ' +
+    color(bold(ypt.toFixed(1))) +
+    dim(' / 100') +
+    '   ' +
+    dim('(`mileage explain ypt` for the breakdown)')
+  );
+}
+
+function renderHeaderBar(
+  weekLabel: string,
+  planLabel: string,
+  scope: string,
+): string[] {
   const lines: string[] = [];
   lines.push('');
   lines.push(
-    `  Code health       ${color(pct + '%')} of AI-attributed lines still alive at 7d   ${dim(`(${s.commits_evaluated} commit${s.commits_evaluated === 1 ? '' : 's'} evaluated)`)}`,
+    brightCyan(bold('Mileage')) +
+      '  ' +
+      dim('·') +
+      '  ' +
+      cyan(weekLabel),
   );
+  const meta: string[] = [];
+  meta.push(dim('Plan:') + ' ' + planLabel);
+  meta.push(dim('Scope:') + ' ' + scope);
+  lines.push('  ' + meta.join('   '));
+  lines.push('');
   return lines;
+}
+
+function scopeLabel(
+  projectFilter: string | undefined,
+  nameMap: Map<string, string>,
+): string {
+  if (!projectFilter) return cyan('all projects');
+  const name = nameMap.get(projectFilter);
+  return name ? cyan(name) : cyan(projectFilter.slice(0, 10));
+}
+
+function windowLabel(days: number, calendarWeek: boolean): string {
+  if (calendarWeek) return 'This week';
+  if (days === 1) return 'Today';
+  if (days === 7) return 'Last 7 days';
+  if (days === 30) return 'Last 30 days';
+  return `Last ${days} days`;
+}
+
+function startOfCalendarWeek(timestamp: number): number {
+  // Monday 00:00 local time of the calendar week containing `timestamp`.
+  const d = new Date(timestamp);
+  const day = d.getDay();
+  const daysFromMonday = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - daysFromMonday);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+interface TopRowFormatted {
+  lead: string;
+  when: string;
+  model: string;
+  dur: string;
+  commits: string;
+  waste: boolean;
+}
+
+function fmtTopRow(r: TopRowFormatted): string {
+  const lead = r.lead.padStart(5);
+  const when = r.when.padEnd(9);
+  const model = r.model.padEnd(14);
+  const dur = r.dur.padStart(6);
+  const commits = r.commits.padEnd(10);
+  const wasteMarker = r.waste ? yellow('⚠ waste') : '';
+  return `    ${lead}  ${when}  ${model}  ${dim(dur)}  ${commits}${wasteMarker}`;
 }
 
 function renderTierFlexBlock(tier: TierFlexResult): string[] {
@@ -179,7 +307,7 @@ function renderTierFlexBlock(tier: TierFlexResult): string[] {
   if (tier.rows.length < 2 && !tier.warning) return lines;
 
   lines.push('');
-  lines.push(dim('  Tier-flex audit (last 30 days):'));
+  lines.push(cyan('  Tier-flex audit') + dim(' (last 30 days)'));
   for (const r of tier.rows) {
     const label = shortModel(r.model_id).padEnd(22);
     const yieldPct = (r.yield_rate * 100).toFixed(0).padStart(3) + '%';
@@ -198,6 +326,7 @@ function renderTierFlexBlock(tier: TierFlexResult): string[] {
 function renderProjectBreakdown(
   last7: Snapshot[],
   showDollars: boolean,
+  nameMap: Map<string, string>,
 ): string[] {
   const byProject = new Map<string, Snapshot[]>();
   for (const s of last7) {
@@ -209,7 +338,7 @@ function renderProjectBreakdown(
 
   const lines: string[] = [];
   lines.push('');
-  lines.push(dim('  By project:'));
+  lines.push(cyan('  By project'));
   const rows: { hash: string; cost: number; tokens: number; commits: number }[] = [];
   for (const [hash, snaps] of byProject) {
     const a = aggregate(snaps);
@@ -221,7 +350,12 @@ function renderProjectBreakdown(
     });
   }
   rows.sort((a, b) => b.cost - a.cost);
+  const labelWidth = Math.min(
+    24,
+    Math.max(...rows.slice(0, 5).map((r) => projectLabel(r.hash, nameMap).length)),
+  );
   for (const r of rows.slice(0, 5)) {
+    const label = projectLabel(r.hash, nameMap).padEnd(labelWidth);
     const cps =
       r.commits > 0
         ? showDollars
@@ -231,42 +365,60 @@ function renderProjectBreakdown(
     const headline = showDollars
       ? fmtUsd(r.cost).padStart(8)
       : `${fmtNum(r.tokens)} tok`.padStart(14);
-    lines.push(`    ${dim(r.hash.slice(0, 10))}   ${headline}   ${cps}`);
+    lines.push(`    ${cyan(label)}   ${headline}   ${cps}`);
   }
   return lines;
+}
+
+function projectLabel(hash: string, nameMap: Map<string, string>): string {
+  const name = nameMap.get(hash);
+  if (name) return name;
+  return hash.slice(0, 10);
 }
 
 export function renderLast7Days(
   db: DatabaseSync,
   projectHash?: string,
+  windowDays: number = 7,
+  calendarWeek: boolean = false,
 ): string {
   const cfg = readConfig();
   const now = Date.now();
-  const last7Start = now - 7 * 86400_000;
-  const prior7Start = now - 14 * 86400_000;
+  let currStart: number;
+  let priorStart: number;
+  if (calendarWeek) {
+    currStart = startOfCalendarWeek(now);
+    priorStart = currStart - 7 * 86400_000;
+  } else {
+    const windowMs = windowDays * 86400_000;
+    currStart = now - windowMs;
+    priorStart = now - 2 * windowMs;
+  }
 
-  const sinceDate = isoDateUTC(prior7Start);
+  const sinceDate = isoDateUTC(priorStart);
   const all = getSnapshotsSince(db, sinceDate, projectHash);
-  const last7 = all.filter((s) => s.date >= isoDateUTC(last7Start));
+  const curr7 = all.filter((s) => s.date >= isoDateUTC(currStart));
   const prior7 = all.filter(
-    (s) => s.date < isoDateUTC(last7Start) && s.date >= isoDateUTC(prior7Start),
+    (s) => s.date < isoDateUTC(currStart) && s.date >= isoDateUTC(priorStart),
   );
 
-  const curr = aggregate(last7);
+  const curr = aggregate(curr7);
   const prev = aggregate(prior7);
   const topSessions = getTopExpensiveSessions(
     db,
-    last7Start,
+    currStart,
     TOP_SESSIONS_N,
     projectHash,
   );
-  const rateHits = getRateLimitHitsSince(db, last7Start);
+  const rateHits = getRateLimitHitsSince(db, currStart);
   const tierFlex = computeTierFlex(db, now - 30 * 86400_000);
   const patterns = detectPatterns(db, now - 30 * 86400_000);
-  const survival = getSurvivalSummarySince(db, last7Start, projectHash);
+  const survival = getSurvivalSummariesSince(db, currStart, projectHash);
+  const nameMap = getProjectNameMap(db);
   const ctx: RenderCtx = {
-    cfg, last7Start, now, curr, prev,
-    topSessions, rateHits, tierFlex, patterns, survival, last7,
+    cfg, last7Start: currStart, now, curr, prev,
+    topSessions, rateHits, tierFlex, patterns, survival, last7: curr7,
+    nameMap, projectFilter: projectHash, windowDays, calendarWeek,
   };
 
   if (isApiPlan(cfg.plan)) return renderApiView(ctx);
@@ -284,22 +436,27 @@ interface RenderCtx {
   rateHits: RateLimitHit[];
   tierFlex: TierFlexResult;
   patterns: PatternFinding[];
-  survival: SurvivalSummary;
+  survival: MultiWindowSurvival;
   last7: Snapshot[];
+  nameMap: Map<string, string>;
+  projectFilter?: string;
+  windowDays: number;
+  calendarWeek: boolean;
 }
 
 function renderApiView(ctx: RenderCtx): string {
   const { cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, patterns, survival, last7 } = ctx;
   const lines: string[] = [];
-  const totalTokens = curr.total_tokens_in + curr.total_tokens_out;
 
-  lines.push('');
   lines.push(
-    bold('Mileage') +
-      dim('  ·  this week  ·  ' + fmtDateRange(last7Start, now)),
+    ...renderHeaderBar(
+      windowLabel(ctx.windowDays, ctx.calendarWeek) +
+        '  ·  ' +
+        fmtDateRange(last7Start, now),
+      planDisplayName(cfg.plan),
+      scopeLabel(ctx.projectFilter, ctx.nameMap),
+    ),
   );
-  lines.push(dim('  Plan: ' + planDisplayName(cfg.plan)));
-  lines.push('');
 
   const spendStr = bold(fmtUsd(curr.total_cost_usd));
   const spendDelta =
@@ -316,7 +473,7 @@ function renderApiView(ctx: RenderCtx): string {
       : `${fmtNum(curr.attributed_commit_count)} commit${curr.attributed_commit_count === 1 ? '' : 's'} shipped`;
   const outcomesDelta =
     prev.attributed_commit_count > 0
-      ? '  ' + dim(`(vs ${fmtNum(prev.attributed_commit_count)} prior week)`)
+      ? '  ' + dim(`(vs ${fmtNum(prev.attributed_commit_count)} prior period)`)
       : '';
   lines.push(`  Outcomes          ${outcomesStr}${outcomesDelta}`);
 
@@ -335,25 +492,26 @@ function renderApiView(ctx: RenderCtx): string {
 
   if (topSessions.length > 0) {
     lines.push('');
-    lines.push(dim(`  Where it went (top ${topSessions.length} sessions this week):`));
+    lines.push(cyan(`  Top sessions`) + dim(` (by cost)`));
     for (const s of topSessions) {
-      const dollar = fmtUsd(s.cost_usd, s.cost_usd >= 10 ? 0 : 2).padStart(6);
-      const when = fmtWeekdayTime(s.timestamp);
-      const dur = fmtDuration(s.duration_ms);
-      const cm = commitsLine(s);
-      const model = shortModel(s.model_id);
-      const waste =
-        s.cost_usd >= cfg.preferences.waste_threshold_usd && s.attr_count === 0
-          ? '  ' + yellow('⚠ waste session')
-          : '';
-      lines.push(`    ${dollar}  ${when} · ${model} · ${dim(dur)} · ${cm}${waste}`);
+      lines.push(
+        fmtTopRow({
+          lead: fmtUsd(s.cost_usd, s.cost_usd >= 10 ? 0 : 2),
+          when: fmtWeekdayTime(s.timestamp),
+          model: shortModel(s.model_id),
+          dur: fmtDuration(s.duration_ms),
+          commits: s.attr_count === 0 ? '0 commits' : s.attr_count === 1 ? '1 commit' : `${s.attr_count} commits`,
+          waste:
+            s.cost_usd >= cfg.preferences.waste_threshold_usd && s.attr_count === 0,
+        }),
+      );
     }
   }
 
   lines.push(...renderSurvivalBlock(survival));
   lines.push(...renderTierFlexBlock(tierFlex));
   lines.push(...renderPatternsBlock(patterns));
-  lines.push(...renderProjectBreakdown(last7, true));
+  lines.push(...renderProjectBreakdown(last7, true, ctx.nameMap));
 
   if (curr.session_count === 0 && curr.commit_count === 0) {
     lines.push('');
@@ -365,9 +523,10 @@ function renderApiView(ctx: RenderCtx): string {
   }
 
   const yptCurr = avgYpt(curr);
-  if (yptCurr !== null) {
+  const yptLine = renderYptFooter(yptCurr, curr.session_count > 0, ctx.projectFilter);
+  if (yptLine) {
     lines.push('');
-    lines.push(dim(`  YPT ${yptCurr.toFixed(1)} — see \`mileage explain ypt\``));
+    lines.push(yptLine);
   }
   lines.push('');
   return lines.join('\n');
@@ -379,13 +538,15 @@ function renderSubscriptionView(ctx: RenderCtx): string {
   const totalTokens = curr.total_tokens_in + curr.total_tokens_out;
   const prevTokens = prev.total_tokens_in + prev.total_tokens_out;
 
-  lines.push('');
   lines.push(
-    bold('Mileage') +
-      dim('  ·  this week  ·  ' + fmtDateRange(last7Start, now)),
+    ...renderHeaderBar(
+      windowLabel(ctx.windowDays, ctx.calendarWeek) +
+        '  ·  ' +
+        fmtDateRange(last7Start, now),
+      planDisplayName(cfg.plan),
+      scopeLabel(ctx.projectFilter, ctx.nameMap),
+    ),
   );
-  lines.push(dim('  Plan: ' + planDisplayName(cfg.plan)));
-  lines.push('');
 
   const tokenStr = bold(fmtNum(totalTokens));
   const tokenDelta =
@@ -402,7 +563,7 @@ function renderSubscriptionView(ctx: RenderCtx): string {
       : `${fmtNum(curr.attributed_commit_count)} commit${curr.attributed_commit_count === 1 ? '' : 's'} shipped`;
   const outcomesDelta =
     prev.attributed_commit_count > 0
-      ? '  ' + dim(`(vs ${fmtNum(prev.attributed_commit_count)} prior week)`)
+      ? '  ' + dim(`(vs ${fmtNum(prev.attributed_commit_count)} prior period)`)
       : '';
   lines.push(`  Outcomes          ${outcomesStr}${outcomesDelta}`);
 
@@ -418,28 +579,30 @@ function renderSubscriptionView(ctx: RenderCtx): string {
 
   if (topSessions.length > 0 && totalTokens > 0) {
     lines.push('');
-    lines.push(dim(`  Top sessions this week (by usage):`));
+    lines.push(cyan(`  Top sessions`) + dim(` (by usage)`));
     for (const s of topSessions) {
-      const sessionTok =
-        curr.total_tokens_in + curr.total_tokens_out > 0
-          ? `${((s.cost_usd / curr.total_cost_usd) * 100).toFixed(0).padStart(2)}%`
-          : '  -';
-      const when = fmtWeekdayTime(s.timestamp);
-      const dur = fmtDuration(s.duration_ms);
-      const cm = commitsLine(s);
-      const model = shortModel(s.model_id);
-      const waste =
-        s.attr_count === 0 && s.cost_usd >= cfg.preferences.waste_threshold_usd
-          ? '  ' + yellow('⚠ waste')
-          : '';
-      lines.push(`    ${sessionTok}  ${when} · ${model} · ${dim(dur)} · ${cm}${waste}`);
+      const pct =
+        curr.total_cost_usd > 0
+          ? `${((s.cost_usd / curr.total_cost_usd) * 100).toFixed(0)}%`
+          : '-';
+      lines.push(
+        fmtTopRow({
+          lead: pct,
+          when: fmtWeekdayTime(s.timestamp),
+          model: shortModel(s.model_id),
+          dur: fmtDuration(s.duration_ms),
+          commits: s.attr_count === 0 ? '0 commits' : s.attr_count === 1 ? '1 commit' : `${s.attr_count} commits`,
+          waste:
+            s.attr_count === 0 && s.cost_usd >= cfg.preferences.waste_threshold_usd,
+        }),
+      );
     }
   }
 
   lines.push(...renderSurvivalBlock(survival));
   lines.push(...renderTierFlexBlock(tierFlex));
   lines.push(...renderPatternsBlock(patterns));
-  lines.push(...renderProjectBreakdown(last7, false));
+  lines.push(...renderProjectBreakdown(last7, false, ctx.nameMap));
 
   if (curr.session_count === 0 && curr.commit_count === 0) {
     lines.push('');
@@ -450,12 +613,11 @@ function renderSubscriptionView(ctx: RenderCtx): string {
     );
   }
 
-  lines.push('');
-  lines.push(dim('  For live cap %, run `/usage` in Claude Code.'));
-
   const yptCurr = avgYpt(curr);
-  if (yptCurr !== null) {
-    lines.push(dim(`  YPT ${yptCurr.toFixed(1)} — see \`mileage explain ypt\``));
+  const yptLine = renderYptFooter(yptCurr, curr.session_count > 0, ctx.projectFilter);
+  if (yptLine) {
+    lines.push('');
+    lines.push(yptLine);
   }
   lines.push('');
   return lines.join('\n');
@@ -472,50 +634,157 @@ function renderUnknownView(ctx: RenderCtx): string {
   return banner + apiOut;
 }
 
-export function renderExplain(db: DatabaseSync, metric: string): string {
-  if (metric !== 'ypt') {
-    return `Unknown metric: ${metric}. Known: ypt`;
-  }
-  const rows = getSnapshotsSince(db, '0000-01-01');
-  if (rows.length === 0) {
-    return 'No snapshots yet. Run `mileage sync` first.';
-  }
-  rows.sort((a, b) => (a.date < b.date ? 1 : -1));
-  const latest = rows[0];
-  const prov: any = latest.provenance ?? {};
+function fmtNumF(n: unknown, decimals: number): string {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  return x.toFixed(decimals);
+}
 
+export function renderExplain(db: DatabaseSync, metric: string): string {
+  if (metric !== 'ypt') return `Unknown metric: ${metric}. Known: ypt`;
+  const rows = getSnapshotsSince(db, '0000-01-01');
+  if (rows.length === 0) return 'No snapshots yet. Run `mileage sync` first.';
+  rows.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const latest = rows.find((r) => r.ypt_score !== null) ?? rows[0];
+  const prov: any = latest.provenance ?? {};
+  const version = prov.version || '(unknown version)';
+  const cal = prov.calibration ?? {};
+  const inputs = prov.inputs ?? {};
+  const byModel = prov.by_model ?? {};
+  const nameMap = getProjectNameMap(db);
+  const projectName =
+    nameMap.get(latest.project_hash) ?? latest.project_hash.slice(0, 10);
   const lines: string[] = [];
-  lines.push('');
-  lines.push(bold('YPT') + dim(' — Yield Per Token (' + (prov.version || 'v?') + ')'));
-  lines.push('');
-  lines.push('  Formula:');
-  lines.push('    ' + (prov.formula ?? 'unknown'));
+
+  // Header
   lines.push('');
   lines.push(
-    '  Most recent snapshot (' +
-      latest.date +
-      ', project ' +
-      latest.project_hash.slice(0, 8) +
-      '):',
+    brightCyan(bold('YPT')) +
+      '  ' +
+      dim('·') +
+      '  ' +
+      cyan('Yield Per Token') +
+      '  ' +
+      dim('·') +
+      '  ' +
+      magenta(version),
   );
-  const i = prov.inputs ?? {};
-  lines.push(`    Direct-attributed commits:   ${fmtNum(i.direct_attribution_count ?? 0)}`);
-  lines.push(`    Inferred-attributed commits: ${fmtNum(i.inferred_attribution_count ?? 0)}`);
-  lines.push(`    → outcome_signals:           ${(i.outcome_signals ?? 0).toFixed(2)}`);
-  lines.push(`    → total_tokens:              ${fmtNum(i.total_tokens ?? 0)}`);
-  lines.push(`    → token_penalty:             ${(i.token_penalty ?? 0).toFixed(2)}`);
-  const score = latest.ypt_score === null ? '—' : latest.ypt_score.toFixed(2);
-  lines.push(`    → YPT score:                 ${bold(score)}`);
   lines.push('');
-  lines.push('  Source: ' + (prov.academic_source ?? 'n/a'));
-  if (prov.notes) {
-    lines.push('');
-    lines.push(dim('  ' + prov.notes));
+
+  // What it is
+  lines.push(cyan('  What it measures'));
+  lines.push('    A bounded 0 to 100 score for how efficiently your tokens convert into');
+  lines.push('    shipped work. 50 is a typical day. 90 is top-decile.');
+  lines.push('');
+
+  // How it's computed
+  lines.push(cyan('  How it is computed'));
+  lines.push(`    yield_rate = composite_outcomes / (tokens / 100,000)`);
+  lines.push(`    YPT        = 100 × Φ((ln(yield_rate) - ln(μ)) / σ)`);
+  lines.push('');
+  lines.push('    ' + dim('where:'));
+  lines.push('    ' + bold('Φ') + dim(' (phi)   ') + 'standard normal CDF, a smooth S-curve from 0 to 100');
+  lines.push('    ' + bold('μ') + dim(' (mu)    ') + 'calibration midpoint (the yield_rate that maps to 50)');
+  lines.push('    ' + bold('σ') + dim(' (sigma) ') + 'spread (how steep the curve is around the midpoint)');
+  lines.push('    ' + bold('ln') + dim('         ') + 'natural logarithm (compresses big numbers)');
+  lines.push('');
+  lines.push('    composite_outcomes counts your attributed commits, weighted by:');
+  lines.push('      attribution confidence (direct=1.0, hook=0.85, inferred=0.5)');
+  lines.push('      code survival at 7d/30d (a commit reverted next day counts less)');
+  lines.push('      your self-tags (marking a session shipped or dead-end)');
+  lines.push('');
+
+  // Current calibration
+  lines.push(cyan('  Active calibration'));
+  lines.push(
+    `    μ      = ${bold(fmtNumF(cal.mu, 4))}   ${dim('(median yield_rate that maps to score 50)')}`,
+  );
+  lines.push(
+    `    σ      = ${bold(fmtNumF(cal.sigma, 4))}   ${dim('(spread; controls how fast the score rises)')}`,
+  );
+  lines.push(`    anchor = ${cal.anchor ?? '(unset)'}`);
+  lines.push(`    source = ${cal.source ?? '(unset)'}`);
+  lines.push('');
+
+  // Most recent scored snapshot
+  lines.push(
+    cyan('  Most recent scored snapshot') +
+      dim('  ·  ' + latest.date + '  ·  project ') +
+      cyan(projectName),
+  );
+  lines.push(`    tokens                = ${fmtNum(inputs.tokens ?? 0)}`);
+  lines.push(
+    `    composite_outcomes    = ${fmtNumF(inputs.composite_outcomes ?? 0, 3)}`,
+  );
+  lines.push(
+    `    yield_rate            = ${fmtNumF(inputs.yield_rate ?? 0, 3)}   ${dim('(outcomes per 100K tokens)')}`,
+  );
+  lines.push(
+    `    scorable / unscorable = ${inputs.scorable_sessions ?? 0} / ${inputs.unscorable_sessions ?? 0}   ${dim('sessions')}`,
+  );
+  if (inputs.excluded_sessions) {
+    lines.push(`    excluded (exploring)  = ${inputs.excluded_sessions}`);
   }
+  const attr = inputs.attribution_breakdown ?? {};
+  lines.push(
+    `    attribution mix       = ${attr.direct ?? 0} direct, ${attr.high ?? 0} hook, ${attr.inferred ?? 0} inferred`,
+  );
+  const tags = inputs.self_tag_breakdown ?? {};
+  const tagPairs: [string, number][] = [
+    ['shipped', tags.shipped ?? 0],
+    ['exploring', tags.exploring ?? 0],
+    ['debugging', tags.debugging ?? 0],
+    ['dead-end', tags['dead-end'] ?? 0],
+  ];
+  const tagStr =
+    tagPairs
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(', ') || '(none)';
+  lines.push(`    self-tag mix          = ${tagStr}`);
+  const survivalLabel = inputs.survival_weight_applied
+    ? green('applied')
+    : dim('not yet (commits younger than 7 days)');
+  lines.push(`    survival weighting    = ${survivalLabel}`);
+  const score =
+    latest.ypt_score === null
+      ? dim('not scored')
+      : yptScoreColor(latest.ypt_score)(bold(latest.ypt_score.toFixed(2)));
+  lines.push(`    YPT score             = ${score}`);
+
+  // Per-model
+  const modelEntries = Object.entries(byModel as Record<string, any>);
+  if (modelEntries.length > 0) {
+    lines.push('');
+    lines.push(cyan('  Per-model breakdown'));
+    for (const [model, m] of modelEntries) {
+      const label = model.padEnd(24);
+      const sess = String(m.sessions).padStart(3);
+      const yr = fmtNumF(m.yield_rate, 2).padStart(5);
+      const sc = fmtNumF(m.score, 0).padStart(3);
+      lines.push(`    ${label}  ${sess} sess   yield ${yr}   score ${sc}`);
+    }
+  }
+
+  // Sources
+  if (Array.isArray(prov.citations) && prov.citations.length > 0) {
+    lines.push('');
+    lines.push(cyan('  Sources'));
+    for (const c of prov.citations) {
+      // Strip the "what V0.1.1 was; replaced" parenthetical roadmap-speak
+      // and other internal asides.
+      const cleaned = String(c)
+        .replace(/\s*\(.*?was.*?replaced.*?\)\s*$/i, '')
+        .replace(/\s*\(.*?Phase 3.*?\)\s*$/i, '')
+        .replace(/\s*\(.*?deferred.*?\)\s*$/i, '');
+      lines.push('    · ' + cleaned);
+    }
+  }
+
   lines.push('');
   lines.push(
     dim(
-      '  Note: YPT v0.1.1 uses a log-penalty formula that produces negative numbers for normal use. V0.3 will replace it with a log-normal CDF approach. For now, focus on Cost-per-Ship (API users) or token-usage (subscription users) in `mileage show`.',
+      '  This calibration is the initial release. (μ, σ) will be refined as the user base grows.',
     ),
   );
   lines.push('');

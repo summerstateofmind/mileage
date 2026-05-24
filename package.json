@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Measure your AI coding efficiency. YPT (Yield Per Token) for solo devs.",
   "bin": {
-    "mileage": "./dist/cli.js"
+    "mileage": "./dist/cli.js",
+    "mileage-mcp": "./dist/mcp/server.js"
   },
   "main": "./dist/cli.js",
   "type": "commonjs",
@@ -27,7 +28,9 @@
     "node": ">=18"
   },
   "dependencies": {
-    "commander": "^12.1.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",

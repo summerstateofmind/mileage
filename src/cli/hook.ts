@@ -23,7 +23,7 @@ if %errorlevel% equ 0 (
 ${HOOK_MARKER_END}
 `;
 
-function isGitRepo(cwd: string): boolean {
+export function isGitRepo(cwd: string): boolean {
   try {
     execFileSync('git', ['-C', cwd, 'rev-parse', '--git-dir'], {
       stdio: ['ignore', 'pipe', 'ignore'],

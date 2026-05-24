@@ -75,6 +75,25 @@ export interface RateLimitHit {
   raw_message: string;
 }
 
+export interface Calibration {
+  version: string;
+  mu: number;
+  sigma: number;
+  n_prior: number;
+  anchor: string;
+  source: string;
+  created_at: number;
+  active: boolean;
+}
+
+export interface ProjectInfo {
+  project_hash: string;
+  name: string;
+  path: string;
+  first_seen: number;
+  last_seen: number;
+}
+
 export interface CommitEvent {
   id: string;
   timestamp: number;

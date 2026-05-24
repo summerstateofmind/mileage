@@ -144,22 +144,26 @@ export interface SurvivalUpdateResult {
   unable: number;
 }
 
+const DEFAULT_WINDOWS = [7, 30];
+
 export function updateSurvivalForCwd(
   db: DatabaseSync,
   cwd: string,
-  windowDays: number = WINDOW_DAYS,
+  windows: number[] = DEFAULT_WINDOWS,
 ): SurvivalUpdateResult {
-  const candidates = selectCommitsNeedingSurvivalCompute(db, windowDays);
   let evaluated = 0;
   let unable = 0;
-  for (const c of candidates) {
-    const row = computeSurvivalForCommit(cwd, c, windowDays);
-    if (row === null) {
-      unable++;
-      continue;
+  for (const w of windows) {
+    const candidates = selectCommitsNeedingSurvivalCompute(db, w);
+    for (const c of candidates) {
+      const row = computeSurvivalForCommit(cwd, c, w);
+      if (row === null) {
+        unable++;
+        continue;
+      }
+      upsertSurvival(db, row);
+      evaluated++;
     }
-    upsertSurvival(db, row);
-    evaluated++;
   }
   return { evaluated, unable };
 }
@@ -170,6 +174,24 @@ export interface SurvivalSummary {
   rate: number | null;
   files_revisited: { file: string; count: number }[];
   commits_evaluated: number;
+}
+
+export interface MultiWindowSurvival {
+  windows: { window_days: number; summary: SurvivalSummary }[];
+}
+
+export function getSurvivalSummariesSince(
+  db: DatabaseSync,
+  sinceMs: number,
+  projectHash?: string,
+  windows: number[] = DEFAULT_WINDOWS,
+): MultiWindowSurvival {
+  return {
+    windows: windows.map((w) => ({
+      window_days: w,
+      summary: getSurvivalSummarySince(db, sinceMs, projectHash, w),
+    })),
+  };
 }
 
 export function getSurvivalSummarySince(

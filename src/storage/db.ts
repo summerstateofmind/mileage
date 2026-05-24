@@ -5,11 +5,14 @@ import type {
   SessionEvent,
   CommitEvent,
   Attribution,
+  AttributionTier,
   Snapshot,
   TopSession,
   RateLimitHit,
   SessionTag,
   SessionTagRow,
+  Calibration,
+  ProjectInfo,
 } from './types';
 
 export function openDb(): DatabaseSync {
@@ -17,6 +20,28 @@ export function openDb(): DatabaseSync {
   db.exec(SCHEMA_SQL);
   db.exec("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')");
   return db;
+}
+
+export function getMeta(db: DatabaseSync, key: string): string | null {
+  const row = db
+    .prepare(`SELECT value FROM meta WHERE key = ?`)
+    .get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setMeta(db: DatabaseSync, key: string, value: string): void {
+  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(key, value);
+}
+
+export function getLastSyncMs(db: DatabaseSync): number | null {
+  const v = getMeta(db, 'last_sync_ms');
+  if (v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function setLastSyncMs(db: DatabaseSync, ms: number): void {
+  setMeta(db, 'last_sync_ms', String(ms));
 }
 
 export function insertSession(db: DatabaseSync, ev: SessionEvent): void {
@@ -307,6 +332,7 @@ export interface UntaggedSession {
   duration_ms: number;
   model_id: string;
   attr_count: number;
+  project_hash: string;
 }
 
 export function getUntaggedSessionsSince(
@@ -323,6 +349,7 @@ export function getUntaggedSessionsSince(
          e.cost_usd,
          (e.session_end_ms - e.timestamp) AS duration_ms,
          COALESCE(e.model_id, 'unknown') AS model_id,
+         e.project_hash,
          (SELECT COUNT(*) FROM attributions a WHERE a.session_id = e.session_id) AS attr_count
        FROM events e
        LEFT JOIN session_tags st ON st.session_id = e.session_id
@@ -335,6 +362,68 @@ export function getUntaggedSessionsSince(
     )
     .all(sinceMs, minCostUsd, limit) as unknown as UntaggedSession[];
   return rows;
+}
+
+export interface SessionContextCommit {
+  commit_hash: string;
+  timestamp: number;
+  kind: 'attributed' | 'nearby';
+}
+
+export function getSessionContextCommits(
+  db: DatabaseSync,
+  sessionId: string,
+  projectHash: string,
+  sessionStartMs: number,
+  sessionEndMs: number,
+  windowMs: number = 2 * 60 * 60 * 1000,
+): SessionContextCommit[] {
+  const attributed = db
+    .prepare(
+      `SELECT e.commit_hash, e.timestamp
+       FROM events e
+       JOIN attributions a ON a.commit_hash = e.commit_hash AND a.session_id = ?
+       WHERE e.type = 'commit'
+       ORDER BY e.timestamp`,
+    )
+    .all(sessionId) as any[];
+
+  const lowerBound = sessionStartMs - windowMs;
+  const upperBound = sessionEndMs + windowMs;
+  const nearby = db
+    .prepare(
+      `SELECT e.commit_hash, e.timestamp
+       FROM events e
+       LEFT JOIN attributions a ON a.commit_hash = e.commit_hash
+       WHERE e.type = 'commit'
+         AND e.project_hash = ?
+         AND e.timestamp >= ?
+         AND e.timestamp <= ?
+         AND a.commit_hash IS NULL
+       ORDER BY e.timestamp`,
+    )
+    .all(projectHash, lowerBound, upperBound) as any[];
+
+  const combined: SessionContextCommit[] = [];
+  for (const r of attributed) {
+    combined.push({
+      commit_hash: String(r.commit_hash),
+      timestamp: Number(r.timestamp),
+      kind: 'attributed',
+    });
+  }
+  const attributedHashes = new Set(combined.map((c) => c.commit_hash));
+  for (const r of nearby) {
+    const hash = String(r.commit_hash);
+    if (attributedHashes.has(hash)) continue;
+    combined.push({
+      commit_hash: hash,
+      timestamp: Number(r.timestamp),
+      kind: 'nearby',
+    });
+  }
+  combined.sort((a, b) => a.timestamp - b.timestamp);
+  return combined;
 }
 
 export function insertRateLimitHit(db: DatabaseSync, h: RateLimitHit): void {
@@ -358,6 +447,203 @@ export function getRateLimitHitsSince(
     )
     .all(sinceMs) as unknown as RateLimitHit[];
   return rows;
+}
+
+export function getActiveCalibration(db: DatabaseSync): Calibration | null {
+  const row = db
+    .prepare(`SELECT * FROM calibration WHERE active = 1 LIMIT 1`)
+    .get() as any;
+  if (!row) return null;
+  return {
+    version: String(row.version),
+    mu: Number(row.mu),
+    sigma: Number(row.sigma),
+    n_prior: Number(row.n_prior),
+    anchor: String(row.anchor),
+    source: String(row.source),
+    created_at: Number(row.created_at),
+    active: Boolean(row.active),
+  };
+}
+
+export function upsertCalibration(db: DatabaseSync, c: Calibration): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO calibration
+     (version, mu, sigma, n_prior, anchor, source, created_at, active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    c.version,
+    c.mu,
+    c.sigma,
+    c.n_prior,
+    c.anchor,
+    c.source,
+    c.created_at,
+    c.active ? 1 : 0,
+  );
+}
+
+export function setActiveCalibration(db: DatabaseSync, version: string): void {
+  db.exec(`UPDATE calibration SET active = 0 WHERE active = 1`);
+  db.prepare(`UPDATE calibration SET active = 1 WHERE version = ?`).run(version);
+}
+
+export interface SessionOutcomeRow {
+  session_id: string;
+  timestamp: number;
+  project_hash: string;
+  tokens: number;
+  model_id: string;
+  tag: SessionTag | null;
+}
+
+export interface SessionAttribution {
+  session_id: string;
+  tier: AttributionTier;
+  commit_hash: string;
+  lines_added: number;
+  lines_surviving: number | null;
+  survival_window_days: number | null;
+}
+
+export function getSessionsInRangeForOutcomes(
+  db: DatabaseSync,
+  startMs: number,
+  endMs: number,
+  projectHash?: string,
+): SessionOutcomeRow[] {
+  const proj = projectHash ? `AND e.project_hash = ?` : '';
+  const params: unknown[] = projectHash
+    ? [startMs, endMs, projectHash]
+    : [startMs, endMs];
+  const rows = db
+    .prepare(
+      `SELECT
+         e.session_id,
+         e.timestamp,
+         e.project_hash,
+         (COALESCE(e.tokens_in, 0) + COALESCE(e.tokens_out, 0)) AS tokens,
+         COALESCE(e.model_id, 'unknown') AS model_id,
+         st.tag AS tag
+       FROM events e
+       LEFT JOIN session_tags st ON st.session_id = e.session_id
+       WHERE e.type = 'session'
+         AND e.timestamp >= ? AND e.timestamp < ?
+         ${proj}`,
+    )
+    .all(...(params as never[])) as any[];
+  return rows.map((r) => ({
+    session_id: String(r.session_id),
+    timestamp: Number(r.timestamp),
+    project_hash: String(r.project_hash),
+    tokens: Number(r.tokens),
+    model_id: String(r.model_id),
+    tag: (r.tag ?? null) as SessionTag | null,
+  }));
+}
+
+export function getAttributionsForSessions(
+  db: DatabaseSync,
+  sessionIds: string[],
+): SessionAttribution[] {
+  if (sessionIds.length === 0) return [];
+  const qs = sessionIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT
+         a.session_id,
+         a.tier,
+         a.commit_hash,
+         COALESCE(e.lines_added, 0) AS lines_added,
+         s30.lines_surviving AS surviving_30,
+         s7.lines_surviving  AS surviving_7
+       FROM attributions a
+       JOIN events e ON e.commit_hash = a.commit_hash AND e.type = 'commit'
+       LEFT JOIN commit_survival s30
+         ON s30.commit_hash = a.commit_hash AND s30.window_days = 30
+       LEFT JOIN commit_survival s7
+         ON s7.commit_hash = a.commit_hash AND s7.window_days = 7
+       WHERE a.session_id IN (${qs})`,
+    )
+    .all(...sessionIds) as any[];
+  return rows.map((r) => {
+    const surviving30 =
+      r.surviving_30 === null || r.surviving_30 === undefined
+        ? null
+        : Number(r.surviving_30);
+    const surviving7 =
+      r.surviving_7 === null || r.surviving_7 === undefined
+        ? null
+        : Number(r.surviving_7);
+    let surviving: number | null = surviving30;
+    let window: number | null = surviving30 === null ? null : 30;
+    if (surviving === null && surviving7 !== null) {
+      surviving = surviving7;
+      window = 7;
+    }
+    return {
+      session_id: String(r.session_id),
+      tier: String(r.tier) as AttributionTier,
+      commit_hash: String(r.commit_hash),
+      lines_added: Number(r.lines_added),
+      lines_surviving: surviving,
+      survival_window_days: window,
+    };
+  });
+}
+
+export function upsertProject(
+  db: DatabaseSync,
+  info: { project_hash: string; name: string; path: string },
+): void {
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO projects (project_hash, name, path, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_hash) DO UPDATE
+       SET name = excluded.name,
+           path = excluded.path,
+           last_seen = excluded.last_seen`,
+  ).run(info.project_hash, info.name, info.path, now, now);
+}
+
+export function getKnownProjects(db: DatabaseSync): ProjectInfo[] {
+  const rows = db
+    .prepare(`SELECT * FROM projects ORDER BY last_seen DESC`)
+    .all() as any[];
+  return rows.map((r) => ({
+    project_hash: String(r.project_hash),
+    name: String(r.name),
+    path: String(r.path),
+    first_seen: Number(r.first_seen),
+    last_seen: Number(r.last_seen),
+  }));
+}
+
+export function getProjectInfo(
+  db: DatabaseSync,
+  projectHash: string,
+): ProjectInfo | null {
+  const row = db
+    .prepare(`SELECT * FROM projects WHERE project_hash = ?`)
+    .get(projectHash) as any;
+  if (!row) return null;
+  return {
+    project_hash: String(row.project_hash),
+    name: String(row.name),
+    path: String(row.path),
+    first_seen: Number(row.first_seen),
+    last_seen: Number(row.last_seen),
+  };
+}
+
+export function getProjectNameMap(db: DatabaseSync): Map<string, string> {
+  const rows = db
+    .prepare(`SELECT project_hash, name FROM projects`)
+    .all() as any[];
+  const m = new Map<string, string>();
+  for (const r of rows) m.set(String(r.project_hash), String(r.name));
+  return m;
 }
 
 export function resolveFullCommitHash(

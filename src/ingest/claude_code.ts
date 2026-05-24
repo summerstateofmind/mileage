@@ -4,7 +4,7 @@ import * as readline from 'node:readline';
 import * as crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { claudeProjectsDir, projectHashFromPath } from '../storage/paths';
-import { insertSession, insertRateLimitHit } from '../storage/db';
+import { insertSession, insertRateLimitHit, upsertProject } from '../storage/db';
 import { computeSessionCostUsd } from '../compute/cost';
 import { PRICING_VERSION } from '../pricing/models';
 import { detectRateLimitHit } from './rate_limits';
@@ -39,6 +39,7 @@ export interface ParseResult {
   sessions: SessionEvent[];
   toolCommitHints: ToolCommitHint[];
   rateLimitHits: RateLimitHit[];
+  projectsSeen: { project_hash: string; path: string }[];
   skipped: number;
   parseErrors: number;
 }
@@ -78,6 +79,7 @@ export function parseJsonlLines(lines: string[], fallbackProjectHash: string): P
   const sessions: SessionEvent[] = [];
   const toolCommitHints: ToolCommitHint[] = [];
   const rateLimitHits: RateLimitHit[] = [];
+  const projectsByHash = new Map<string, string>();
   let skipped = 0;
 
   for (const group of groups.values()) {
@@ -108,6 +110,9 @@ export function parseJsonlLines(lines: string[], fallbackProjectHash: string): P
       const reportedCost = sumCost(seg.entries);
       const cwd = pickCwd(seg.entries);
       const segProjectHash = cwd ? projectHashFromPath(cwd) : fallbackProjectHash;
+      if (cwd && !projectsByHash.has(segProjectHash)) {
+        projectsByHash.set(segProjectHash, cwd);
+      }
 
       const totalTok = tok.input + tok.cache_create + tok.cache_read + tok.output;
       if (totalTok === 0) {
@@ -149,7 +154,11 @@ export function parseJsonlLines(lines: string[], fallbackProjectHash: string): P
     }
   }
 
-  return { sessions, toolCommitHints, rateLimitHits, skipped, parseErrors };
+  const projectsSeen = Array.from(projectsByHash, ([project_hash, path]) => ({
+    project_hash,
+    path,
+  }));
+  return { sessions, toolCommitHints, rateLimitHits, projectsSeen, skipped, parseErrors };
 }
 
 function extractRateLimitHitsFromSegment(
@@ -284,6 +293,12 @@ function extractCommitHintsFromSegment(
   return hints;
 }
 
+function basenameForDisplay(p: string): string {
+  const cleaned = p.replace(/[\\/]+$/, '');
+  const base = path.basename(cleaned);
+  return base || cleaned;
+}
+
 export function findJsonlFilesModifiedSince(sinceMs: number): { file: string; projectDir: string }[] {
   const root = claudeProjectsDir();
   if (!fs.existsSync(root)) return [];
@@ -341,6 +356,13 @@ export function ingestClaudeCode(db: DatabaseSync, sinceMs: number): IngestSumma
       if (h.timestamp < sinceMs) continue;
       insertRateLimitHit(db, h);
       rateLimitHitsIngested++;
+    }
+    for (const p of r.projectsSeen) {
+      upsertProject(db, {
+        project_hash: p.project_hash,
+        name: basenameForDisplay(p.path),
+        path: p.path,
+      });
     }
     skipped += r.skipped;
     parseErrors += r.parseErrors;

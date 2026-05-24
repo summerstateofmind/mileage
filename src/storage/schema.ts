@@ -76,6 +76,30 @@ CREATE TABLE IF NOT EXISTS rate_limit_hits (
 
 CREATE INDEX IF NOT EXISTS idx_rl_ts ON rate_limit_hits(timestamp);
 
+CREATE TABLE IF NOT EXISTS calibration (
+  version    TEXT PRIMARY KEY,
+  mu         REAL NOT NULL,
+  sigma      REAL NOT NULL,
+  n_prior    INTEGER NOT NULL,
+  anchor     TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_calibration
+  ON calibration(active) WHERE active = 1;
+
+CREATE TABLE IF NOT EXISTS projects (
+  project_hash TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  first_seen   INTEGER NOT NULL,
+  last_seen    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_last_seen ON projects(last_seen);
+
 CREATE TABLE IF NOT EXISTS snapshots (
   date                       TEXT NOT NULL,
   project_hash               TEXT NOT NULL,
