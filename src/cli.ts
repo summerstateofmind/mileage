@@ -15,7 +15,11 @@ import { renderLast7Days, renderExplain } from './render/show';
 import { renderWeeklyReport } from './render/report';
 import { renderHeatmap } from './render/heatmap';
 import { projectHashFromCwd } from './storage/paths';
-import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo } from './config/plan';
+import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo, setJudgeEnabled, setJudgeCloud } from './config/plan';
+import { runJudgePass } from './judge/run_pass';
+import { selectJudgeModel } from './judge/detect';
+import { purgeVerdicts } from './storage/db';
+import * as readline from 'node:readline';
 import { runTagFlow } from './cli/tag';
 import { runReviewFlow } from './cli/review';
 import { installPostCommitHook, uninstallPostCommitHook } from './cli/hook';
@@ -177,6 +181,11 @@ async function runBareCommand(opts: {
       const note = last === null ? 'no prior sync' : `${minutesAgo(last)}m since last sync`;
       console.log(dim(`Auto-syncing (${note})...`));
       runSync(db, { since: '30d', silent: true });
+      const cfgJudge = readConfig();
+      if (cfgJudge.judge.enabled) {
+        const now2 = Date.now();
+        await runJudgePass(db, cfgJudge, now2 - 30 * 86400_000, now2, false);
+      }
     }
 
     const projectFilter = opts.all ? undefined : autoProjectFilter(db);
@@ -255,10 +264,15 @@ program
   .description('Ingest Claude Code sessions + git commits and compute snapshots')
   .option('--since <duration>', 'how far back to sync (e.g. 7d, 30d, 24h)', '30d')
   .option('--silent', 'no output unless there is an error', false)
-  .action((opts) => {
+  .action(async (opts) => {
     const db = openDb();
     try {
       runSync(db, opts as SyncOpts);
+      const cfgJudge = readConfig();
+      if (cfgJudge.judge.enabled) {
+        const now = Date.now();
+        await runJudgePass(db, cfgJudge, now - 30 * 86400_000, now, false);
+      }
     } finally {
       db.close();
     }
@@ -499,6 +513,82 @@ program
     console.log(
       `Plan set to "${cfg.plan}". Run \`mileage show\` to see updated framing.`,
     );
+  });
+
+program
+  .command('judge:enable')
+  .description('Turn on the local session-intent judge (opt-in; reads prompts + trajectory)')
+  .action(async () => {
+    const cfg = readConfig();
+    const model = await selectJudgeModel({ ...cfg, judge: { ...cfg.judge, enabled: true } });
+    console.log(
+      '\n' + bold('Enabling the session-intent judge') + '\n' +
+      '  Reads: your PROMPTS + tool-action metadata (counts, file paths, errors) for\n' +
+      '         high-effort no-commit "research" sessions only. NOT code, diffs, or\n' +
+      '         assistant prose.\n' +
+      `  Runs:  ${model.kind === 'off' ? red('no model available — ' + model.reason) : model.kind + ' (' + model.model + ')'}\n` +
+      '  Stores: verdict + confidence + a short reason, on THIS machine only.\n' +
+      '  Leaves machine: nothing (local). Cloud opt-in (if set) sends prompts+trajectory only.\n',
+    );
+    if (model.kind === 'off') {
+      console.log(dim('  To use a local model: install Ollama (https://ollama.com), then `ollama pull qwen2.5:3b`.'));
+      console.log(dim('  Or configure cloud: `mileage judge:set-cloud <endpoint> <model>` + set MILEAGE_JUDGE_API_KEY.\n'));
+    }
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((res) => rl.question('Type `yes I read this` to enable: ', res));
+    rl.close();
+    if (answer.trim() !== 'yes I read this') {
+      console.log('Not enabled.');
+      return;
+    }
+    setJudgeEnabled(true);
+    console.log(green('Judge enabled.') + ' Run `mileage judge`, or it runs during sync.');
+  });
+
+program
+  .command('judge:disable')
+  .description('Turn off the judge and purge all cached verdicts')
+  .action(() => {
+    const db = openDb();
+    try {
+      setJudgeEnabled(false);
+      purgeVerdicts(db);
+      console.log('Judge disabled; cached verdicts purged.');
+    } finally {
+      db.close();
+    }
+  });
+
+program
+  .command('judge:set-cloud <endpoint> <model>')
+  .description('Configure + enable the cloud judge opt-in; API key from MILEAGE_JUDGE_API_KEY')
+  .action((endpoint: string, model: string) => {
+    setJudgeCloud({ enabled: true, endpoint, model });
+    console.log(`Cloud judge set: ${model} @ ${endpoint}. Set MILEAGE_JUDGE_API_KEY in your env.`);
+  });
+
+program
+  .command('judge')
+  .description('Run a judging pass over high-effort no-commit sessions (last 30 days)')
+  .option('--refresh', 're-judge sessions even if already cached', false)
+  .action(async (opts) => {
+    const db = openDb();
+    try {
+      const cfg = readConfig();
+      if (!cfg.judge.enabled) {
+        console.log('Judge is off. Enable it with `mileage judge:enable`.');
+        return;
+      }
+      const now = Date.now();
+      const r = await runJudgePass(db, cfg, now - 30 * 86400_000, now, !!opts.refresh);
+      if (r.skipped_unavailable) {
+        console.log(yellow('No model available: ') + r.model);
+      } else {
+        console.log(`Judged ${r.judged} session(s) with ${r.model}.`);
+      }
+    } finally {
+      db.close();
+    }
   });
 
 program
