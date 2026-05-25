@@ -135,6 +135,18 @@ mileage check          # one-shot terminal version of `usage_check`
 mileage check --json   # JSON for scripts
 ```
 
+## Shell completion
+
+Tab-complete commands — `mileage ju⇥` → `mileage judge:enable`. Print a script for your shell and load it from your profile:
+
+```bash
+mileage completion pwsh | Out-String | Invoke-Expression   # PowerShell ($PROFILE)
+source <(mileage completion bash)                           # bash (~/.bashrc)
+source <(mileage completion zsh)                            # zsh (~/.zshrc)
+```
+
+> **Testers wanted:** PowerShell completion is solid; **bash/zsh completion is new** — the `:` in commands like `judge:enable` is a bash word-break we strip by hand, so edge cases may remain. If it misbehaves in your shell, please open an issue. (An easy, friendly first contribution.)
+
 ## Why "Mileage"
 
 MPG of AI coding. Cost-per-Ship is the literal "fuel for the distance shipped." For API users that's dollars per commit. For Pro and Max users it's tokens-per-commit, with rate-limit hits as the ground-truth "you ran out of fuel" signal.

@@ -17,6 +17,7 @@ import { renderHeatmap } from './render/heatmap';
 import { projectHashFromCwd } from './storage/paths';
 import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo, setJudgeEnabled, setJudgeCloud } from './config/plan';
 import { runJudgePass } from './judge/run_pass';
+import { completionScript } from './cli/completion';
 import { selectJudgeModel } from './judge/detect';
 import { purgeVerdicts } from './storage/db';
 import * as readline from 'node:readline';
@@ -627,6 +628,22 @@ program
       .all();
     console.table(rows);
     db.close();
+  });
+
+program
+  .command('completion <shell>')
+  .description('Print a shell completion script (shell: pwsh | bash | zsh)')
+  .action((shell: string) => {
+    const script = completionScript(
+      shell,
+      program.commands.map((c) => c.name()),
+    );
+    if (!script) {
+      console.error(`Unknown shell "${shell}". Use: pwsh | bash | zsh.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(script);
   });
 
 program.parseAsync(process.argv).catch((e) => {
