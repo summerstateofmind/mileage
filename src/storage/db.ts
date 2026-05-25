@@ -674,6 +674,55 @@ export function getProjectNameMap(db: DatabaseSync): Map<string, string> {
   return m;
 }
 
+export interface SessionVerdictRow {
+  session_id: string;
+  verdict: string;
+  confidence: number;
+  model: string;
+  rationale: string | null;
+  judged_at: number;
+}
+
+export function insertVerdict(db: DatabaseSync, v: SessionVerdictRow): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO session_verdicts
+     (session_id, verdict, confidence, model, rationale, judged_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(v.session_id, v.verdict, v.confidence, v.model, v.rationale, v.judged_at);
+}
+
+export function getVerdict(db: DatabaseSync, sessionId: string): SessionVerdictRow | null {
+  const r = db
+    .prepare(`SELECT * FROM session_verdicts WHERE session_id = ?`)
+    .get(sessionId) as unknown as SessionVerdictRow | undefined;
+  return r ?? null;
+}
+
+export function getVerdictsForSessions(
+  db: DatabaseSync,
+  ids: string[],
+): Map<string, SessionVerdictRow> {
+  const out = new Map<string, SessionVerdictRow>();
+  if (ids.length === 0) return out;
+  const qs = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT * FROM session_verdicts WHERE session_id IN (${qs})`)
+    .all(...ids) as unknown as SessionVerdictRow[];
+  for (const r of rows) out.set(r.session_id, r);
+  return out;
+}
+
+export function getJudgedSessionIds(db: DatabaseSync): Set<string> {
+  const rows = db
+    .prepare(`SELECT session_id FROM session_verdicts`)
+    .all() as unknown as { session_id: string }[];
+  return new Set(rows.map((r) => r.session_id));
+}
+
+export function purgeVerdicts(db: DatabaseSync): void {
+  db.exec(`DELETE FROM session_verdicts`);
+}
+
 export function resolveFullCommitHash(
   db: DatabaseSync,
   prefix: string,

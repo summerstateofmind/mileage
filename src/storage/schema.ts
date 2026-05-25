@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS idx_projects_last_seen ON projects(last_seen);
 
+CREATE TABLE IF NOT EXISTS session_verdicts (
+  session_id  TEXT PRIMARY KEY,
+  verdict     TEXT NOT NULL CHECK (verdict IN ('productive','spinning','uncertain')),
+  confidence  REAL NOT NULL,
+  model       TEXT NOT NULL,
+  rationale   TEXT,
+  judged_at   INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS snapshots (
   date                       TEXT NOT NULL,
   project_hash               TEXT NOT NULL,

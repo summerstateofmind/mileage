@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { SCHEMA_SQL } from './schema';
-import { insertSession, getSessionsSpanningCommit, getPrecedingSessions } from './db';
+import { insertSession, getSessionsSpanningCommit, getPrecedingSessions, insertVerdict, getVerdict, getVerdictsForSessions, purgeVerdicts } from './db';
 import type { SessionEvent } from './types';
 
 function memDb(): DatabaseSync {
@@ -61,4 +61,17 @@ test('preceding: returns same-project sessions ended within the window before th
     rows.map((r) => r.session_id),
     ['recent'],
   );
+});
+
+test('verdict insert/get/getMany/purge round-trips', () => {
+  const db = memDb();
+  insertVerdict(db, { session_id: 's1', verdict: 'spinning', confidence: 0.82, model: 'qwen2.5:3b', rationale: 'looped on regex', judged_at: 100 });
+  const v = getVerdict(db, 's1');
+  assert.equal(v?.verdict, 'spinning');
+  assert.equal(v?.confidence, 0.82);
+  const m = getVerdictsForSessions(db, ['s1', 's2']);
+  assert.equal(m.get('s1')?.model, 'qwen2.5:3b');
+  assert.equal(m.has('s2'), false);
+  purgeVerdicts(db);
+  assert.equal(getVerdict(db, 's1'), null);
 });
