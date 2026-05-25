@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { mileageDir } from '../storage/paths';
+import { mileageDir, normalizePath } from '../storage/paths';
 import type { MileageConfig, Plan } from '../storage/types';
 
 const CONFIG_FILE = 'config.json';
@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG: MileageConfig = {
     show_dollars_anyway: false,
     waste_threshold_usd: 5,
   },
+  excluded_repos: [],
 };
 
 export const VALID_PLANS: Plan[] = [
@@ -40,6 +41,7 @@ export function readConfig(): MileageConfig {
         ...DEFAULT_CONFIG.preferences,
         ...(parsed.preferences ?? {}),
       },
+      excluded_repos: parsed.excluded_repos ?? DEFAULT_CONFIG.excluded_repos,
     };
   } catch {
     return DEFAULT_CONFIG;
@@ -88,4 +90,27 @@ export function isSubscriptionPlan(plan: Plan): boolean {
 
 export function isApiPlan(plan: Plan): boolean {
   return plan === 'api';
+}
+
+export function withExcludedRepo(cfg: MileageConfig, repoPath: string): MileageConfig {
+  const norm = normalizePath(repoPath);
+  if (cfg.excluded_repos.includes(norm)) return cfg;
+  return { ...cfg, excluded_repos: [...cfg.excluded_repos, norm] };
+}
+
+export function withoutExcludedRepo(cfg: MileageConfig, repoPath: string): MileageConfig {
+  const norm = normalizePath(repoPath);
+  return { ...cfg, excluded_repos: cfg.excluded_repos.filter((x) => x !== norm) };
+}
+
+export function addExcludedRepo(repoPath: string): MileageConfig {
+  const cfg = withExcludedRepo(readConfig(), repoPath);
+  writeConfig(cfg);
+  return cfg;
+}
+
+export function removeExcludedRepo(repoPath: string): MileageConfig {
+  const cfg = withoutExcludedRepo(readConfig(), repoPath);
+  writeConfig(cfg);
+  return cfg;
 }

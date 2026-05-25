@@ -46,6 +46,7 @@ export interface MileageConfig {
     show_dollars_anyway: boolean;
     waste_threshold_usd: number;
   };
+  excluded_repos: string[];
 }
 
 export type SessionTag = 'shipped' | 'exploring' | 'debugging' | 'dead-end';

@@ -8,13 +8,14 @@ import { openDb, getLastSyncMs, setLastSyncMs, upsertProject, getKnownProjects }
 import { ingestClaudeCode } from './ingest/claude_code';
 import { ingestGit } from './ingest/git';
 import { attributeDirect, attributeInferred } from './ingest/attribution';
+import { selectReposToSync } from './ingest/repo_selection';
 import { computeSnapshotsSince } from './compute/ypt';
 import { updateSurvivalForCwd } from './compute/survival';
 import { renderLast7Days, renderExplain } from './render/show';
 import { renderWeeklyReport } from './render/report';
 import { renderHeatmap } from './render/heatmap';
 import { projectHashFromCwd } from './storage/paths';
-import { readConfig, setPlan, VALID_PLANS } from './config/plan';
+import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo } from './config/plan';
 import { runTagFlow } from './cli/tag';
 import { runReviewFlow } from './cli/review';
 import { installPostCommitHook, uninstallPostCommitHook } from './cli/hook';
@@ -59,10 +60,18 @@ function runSync(db: DatabaseSync, opts: SyncOpts): void {
   });
 
   const cc = ingestClaudeCode(db, sinceMs);
-  const git = ingestGit(db, cwd, sinceMs, projectHash);
+  const cfg = readConfig();
+  const known = getKnownProjects(db);
+  const repos = selectReposToSync(known, cfg.excluded_repos);
+  const excludedCount = known.length - repos.length;
+  let gitCommits = 0;
+  let survivalEvaluated = 0;
+  for (const repo of repos) {
+    gitCommits += ingestGit(db, repo.path, sinceMs, repo.project_hash).commitsIngested;
+    survivalEvaluated += updateSurvivalForCwd(db, repo.path).evaluated;
+  }
   const direct = attributeDirect(db, cc.toolCommitHints);
   const inferred = attributeInferred(db, sinceMs);
-  const survival = updateSurvivalForCwd(db, cwd);
   const snaps = computeSnapshotsSince(db, sinceMs);
   setLastSyncMs(db, Date.now());
 
@@ -70,10 +79,11 @@ function runSync(db: DatabaseSync, opts: SyncOpts): void {
 
   console.log(
     `Synced ${cc.sessionsIngested} sessions across ${cc.filesScanned} JSONL files, ` +
-      `${git.commitsIngested} commits, ` +
+      `git-scanned ${repos.length} repos${excludedCount > 0 ? ` (${excludedCount} excluded)` : ''}, ` +
+      `${gitCommits} commits, ` +
       `${direct + inferred} attributions (${direct} direct, ${inferred} by time-window), ` +
       `${cc.rateLimitHitsIngested} rate-limit hits, ` +
-      `${survival.evaluated} survival evaluations, ` +
+      `${survivalEvaluated} survival evaluations, ` +
       `${snaps} snapshots`,
   );
   if (cc.parseErrors > 0) {
@@ -82,9 +92,9 @@ function runSync(db: DatabaseSync, opts: SyncOpts): void {
   if (cc.skipped > 0) {
     console.warn(`  warning: ${cc.skipped} sessions skipped (zero tokens)`);
   }
-  if (git.commitsIngested === 0) {
+  if (gitCommits === 0) {
     console.warn(
-      `  note: no git commits ingested from ${cwd} — not a repo, or no recent activity`,
+      `  note: no git commits ingested across ${repos.length} repos — none are git repos, or no recent activity`,
     );
   }
 }
@@ -489,6 +499,22 @@ program
     console.log(
       `Plan set to "${cfg.plan}". Run \`mileage show\` to see updated framing.`,
     );
+  });
+
+program
+  .command('config:exclude-repo <path>')
+  .description('Exclude a repo from git scanning during sync (its metadata is never read)')
+  .action((p: string) => {
+    const cfg = addExcludedRepo(p);
+    console.log(`Excluded "${p}". ${cfg.excluded_repos.length} repo(s) now excluded from sync.`);
+  });
+
+program
+  .command('config:unexclude-repo <path>')
+  .description('Remove a repo from the sync exclude list')
+  .action((p: string) => {
+    const cfg = removeExcludedRepo(p);
+    console.log(`Removed "${p}". ${cfg.excluded_repos.length} repo(s) still excluded.`);
   });
 
 program

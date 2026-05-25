@@ -22,7 +22,7 @@ export function schemaPath(): string {
   return path.join(__dirname, 'schema.sql');
 }
 
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   const resolved = path.resolve(p).replace(/[\\/]+$/, '');
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
