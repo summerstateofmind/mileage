@@ -71,3 +71,7 @@ Only build this once Step 1's verdicts ring true.
 - **Cloud provider** is OpenAI-compatible only (`Bearer` + `/chat/completions`). Anthropic-native shape is a later option.
 - **`findSessionSegmentEntries` scans all project JSONL per session** — fine at the per-sync cap, but index it if it gets slow on large histories.
 - **Code-quality / static-analysis Quality Mode** (lizard/jscpd/Semgrep) — separate, indefinitely deferred (decided not the YPT lever).
+
+## Polish backlog (from the 2026-05-25 CLI review)
+- **Rate-limit hits over-count raw 429 entries.** Detection now works, but a single cap *event* logs several 429 retries within ~a minute (e.g. ~2 real events surfaced as 8 hits). Cluster near-simultaneous hits (same window, < ~2 min apart) into distinct events for an honest count.
+- **bash/zsh completion is field-untested.** PowerShell is solid; the `:` word-break handling in bash/zsh needs real-shell verification (README flags "testers wanted" — a community on-ramp at launch).
