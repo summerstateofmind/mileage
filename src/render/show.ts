@@ -23,7 +23,7 @@ import {
 } from '../config/plan';
 import { computeTierFlex, TierFlexResult } from '../compute/tier_flex';
 import { detectPatterns, PatternFinding } from '../compute/patterns';
-import { computeUsageCheck, type UsageCheckResult } from '../compute/usage';
+import { computeUsageCheck, type UsageCheckResult, type WindowUsage } from '../compute/usage';
 import { bucketWindow, type EffTally } from '../compute/effectiveness';
 import {
   getSurvivalSummariesSince,
@@ -143,10 +143,9 @@ function pctDelta(curr: number, prev: number, badIsHigher: boolean = true): stri
   return `${arrow} ${sign}${pct.toFixed(0)}% vs prior period`;
 }
 
-function commitsLine(s: TopSession): string {
-  if (s.attr_count === 0) return dim('0 commits');
-  if (s.attr_count === 1) return '1 commit';
-  return `${s.attr_count} commits`;
+function bucketLabel(attrCount: number): string {
+  if (attrCount === 0) return 'research';
+  return attrCount === 1 ? '1 commit' : `${attrCount} commits`;
 }
 
 function shortModel(modelId: string): string {
@@ -242,7 +241,7 @@ export function fillBar(pct: number | null): string {
   return '▓'.repeat(filled) + '░'.repeat(8 - filled);
 }
 
-function capBar(w: { percent_used: number | null; warning_level: string }): string {
+function capBar(w: WindowUsage): string {
   const bar = fillBar(w.percent_used);
   if (w.percent_used === null) return dim(bar);
   const color =
@@ -551,12 +550,7 @@ function renderApiView(ctx: RenderCtx): string {
           when: fmtWeekdayTime(s.timestamp),
           model: shortModel(s.model_id),
           dur: fmtDuration(s.duration_ms),
-          label:
-            s.attr_count === 0
-              ? 'research'
-              : s.attr_count === 1
-                ? '1 commit'
-                : `${s.attr_count} commits`,
+          label: bucketLabel(s.attr_count),
         }),
       );
     }
@@ -601,6 +595,9 @@ function renderSubscriptionView(ctx: RenderCtx): string {
       scopeLabel(ctx.projectFilter, ctx.nameMap),
     ),
   );
+  // The Ship line counts SESSIONS over a ms-precise window (bucketWindow); the
+  // Outcomes and Tokens lines below count commits/tokens from date-floored daily
+  // snapshots — different lenses, so the window edges can differ slightly.
   lines.push(renderHeadroomLine(ctx.usage));
   lines.push(...renderShipLine(ctx.effTally, survival7dRate(ctx.survival)));
   lines.push('  ' + dim('─'.repeat(44)));
@@ -648,12 +645,7 @@ function renderSubscriptionView(ctx: RenderCtx): string {
           when: fmtWeekdayTime(s.timestamp),
           model: shortModel(s.model_id),
           dur: fmtDuration(s.duration_ms),
-          label:
-            s.attr_count === 0
-              ? 'research'
-              : s.attr_count === 1
-                ? '1 commit'
-                : `${s.attr_count} commits`,
+          label: bucketLabel(s.attr_count),
         }),
       );
     }

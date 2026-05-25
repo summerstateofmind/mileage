@@ -119,9 +119,8 @@ export function renderWeeklyReport(db: DatabaseSync, days: number = 7): string {
     lines.push('## Top sessions this week');
     lines.push('');
     for (const s of top) {
-      const cm = s.attr_count === 0 ? '0 commits' : `${s.attr_count} commit${s.attr_count === 1 ? '' : 's'}`;
-      const waste = s.attr_count === 0 && s.cost_usd >= cfg.preferences.waste_threshold_usd ? ' ⚠ waste' : '';
-      lines.push(`- ${fmtUsd(s.cost_usd)} · ${fmtWeekdayTime(s.timestamp)} · ${shortModel(s.model_id)} · ${fmtDuration(s.duration_ms)} · ${cm}${waste}`);
+      const cm = s.attr_count === 0 ? 'research' : `${s.attr_count} commit${s.attr_count === 1 ? '' : 's'}`;
+      lines.push(`- ${fmtUsd(s.cost_usd)} · ${fmtWeekdayTime(s.timestamp)} · ${shortModel(s.model_id)} · ${fmtDuration(s.duration_ms)} · ${cm}`);
     }
     lines.push('');
   }
