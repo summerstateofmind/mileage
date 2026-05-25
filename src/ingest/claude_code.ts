@@ -7,7 +7,7 @@ import { claudeProjectsDir, projectHashFromPath } from '../storage/paths';
 import { insertSession, insertRateLimitHit, upsertProject } from '../storage/db';
 import { computeSessionCostUsd } from '../compute/cost';
 import { PRICING_VERSION } from '../pricing/models';
-import { detectRateLimitHit } from './rate_limits';
+import { detectRateLimitHit, detectApiErrorRateLimit } from './rate_limits';
 import type { SessionEvent, ToolCommitHint, RateLimitHit } from '../storage/types';
 
 const SESSION_GAP_MS = 10 * 60_000;
@@ -30,6 +30,9 @@ export interface JsonlEntry {
   requestId?: string;
   cwd?: string;
   toolUseResult?: string;
+  isApiErrorMessage?: boolean;
+  error?: string;
+  apiErrorStatus?: number;
   message?: {
     role?: string;
     model?: string;
@@ -178,6 +181,18 @@ function extractRateLimitHitsFromSegment(
   for (const e of entries) {
     const ts = Date.parse(e.timestamp as string);
     if (!Number.isFinite(ts)) continue;
+
+    // Real cap hits are API-error entries (isApiErrorMessage), not tool errors.
+    if (e.isApiErrorMessage) {
+      const c = e.message?.content;
+      const apiText = Array.isArray(c)
+        ? (c as Array<any>).map((x) => (typeof x?.text === 'string' ? x.text : '')).join(' ')
+        : typeof c === 'string'
+          ? c
+          : '';
+      const apiHit = detectApiErrorRateLimit(e, apiText, ts, sessionId);
+      if (apiHit) hits.push(apiHit);
+    }
 
     // toolUseResult is only populated on actual tool error responses; safe to scan
     if (typeof e.toolUseResult === 'string' && /error|fail/i.test(e.toolUseResult)) {

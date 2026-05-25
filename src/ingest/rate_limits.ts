@@ -17,36 +17,51 @@ const RATE_LIMIT_PATTERNS = [
 const WINDOW_5H = /5[_\s-]?hour|five[_\s-]?hour/i;
 const WINDOW_7D = /7[_\s-]?day|seven[_\s-]?day|weekly/i;
 
+function classifyWindow(text: string): RateLimitHit['window'] {
+  if (WINDOW_5H.test(text) || /session limit/i.test(text)) return '5h';
+  if (WINDOW_7D.test(text)) return '7d';
+  return 'unknown';
+}
+
+function makeHit(text: string, timestamp: number, sessionId: string | null): RateLimitHit {
+  const id = crypto
+    .createHash('sha1')
+    .update(`${timestamp}|${sessionId ?? ''}|${text.slice(0, 200)}`)
+    .digest('hex')
+    .slice(0, 16);
+  return {
+    id,
+    timestamp,
+    session_id: sessionId,
+    window: classifyWindow(text),
+    raw_message: text.slice(0, 500),
+  };
+}
+
 export function detectRateLimitHit(
   text: string,
   timestamp: number,
   sessionId: string | null,
 ): RateLimitHit | null {
   if (!text) return null;
-  let matched = false;
-  for (const p of RATE_LIMIT_PATTERNS) {
-    if (p.test(text)) {
-      matched = true;
-      break;
-    }
-  }
-  if (!matched) return null;
+  if (!RATE_LIMIT_PATTERNS.some((p) => p.test(text))) return null;
+  return makeHit(text, timestamp, sessionId);
+}
 
-  let win: RateLimitHit['window'] = 'unknown';
-  if (WINDOW_5H.test(text)) win = '5h';
-  else if (WINDOW_7D.test(text)) win = '7d';
-
-  const id = crypto
-    .createHash('sha1')
-    .update(`${timestamp}|${sessionId ?? ''}|${text.slice(0, 200)}`)
-    .digest('hex')
-    .slice(0, 16);
-
-  return {
-    id,
-    timestamp,
-    session_id: sessionId,
-    window: win,
-    raw_message: text.slice(0, 500),
-  };
+// Real Claude Code cap hits arrive as API-error entries (isApiErrorMessage with
+// error:"rate_limit" / apiErrorStatus 429), NOT tool-result errors — and their
+// user-facing text ("session limit reached") doesn't match the text patterns above.
+// Detect them structurally off the reliable flags instead.
+export function detectApiErrorRateLimit(
+  entry: { isApiErrorMessage?: boolean; error?: string; apiErrorStatus?: number },
+  text: string,
+  timestamp: number,
+  sessionId: string | null,
+): RateLimitHit | null {
+  const isRateLimit =
+    entry.isApiErrorMessage === true &&
+    ((typeof entry.error === 'string' && /rate[_\s-]?limit/i.test(entry.error)) ||
+      entry.apiErrorStatus === 429);
+  if (!isRateLimit) return null;
+  return makeHit(text || 'rate limit (api error)', timestamp, sessionId);
 }
