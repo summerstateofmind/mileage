@@ -250,7 +250,7 @@ function capBar(w: WindowUsage): string {
       : w.warning_level === 'soft'
         ? yellow
         : green;
-  return color(`${bar} ${w.percent_used.toFixed(0)}%`);
+  return color(`${bar} ${w.percent_used.toFixed(0).padStart(3)}%`);
 }
 
 function renderHeadroomLine(usage: UsageCheckResult): string {

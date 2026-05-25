@@ -178,7 +178,7 @@ async function runBareCommand(opts: {
 
     if (!opts.noSync && isSyncStale(db)) {
       const last = getLastSyncMs(db);
-      const note = last === null ? 'no prior sync' : `${minutesAgo(last)}m since last sync`;
+      const note = last === null ? 'no prior sync' : `${fmtAgo(Date.now() - last)} since last sync`;
       console.log(dim(`Auto-syncing (${note})...`));
       runSync(db, { since: '30d', silent: true });
       const cfgJudge = readConfig();
@@ -224,8 +224,12 @@ function normalizePathForCompare(p: string): string {
   return process.platform === 'win32' ? stripped.toLowerCase() : stripped;
 }
 
-function minutesAgo(ms: number): number {
-  return Math.max(0, Math.round((Date.now() - ms) / 60_000));
+function fmtAgo(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
 }
 
 program
@@ -535,9 +539,9 @@ program
       console.log(dim('  Or configure cloud: `mileage judge:set-cloud <endpoint> <model>` + set MILEAGE_JUDGE_API_KEY.\n'));
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await new Promise<string>((res) => rl.question('Type `yes I read this` to enable: ', res));
+    const answer = await new Promise<string>((res) => rl.question('Enable the judge? [y/N]: ', res));
     rl.close();
-    if (answer.trim() !== 'yes I read this') {
+    if (!/^y(es)?$/i.test(answer.trim())) {
       console.log('Not enabled.');
       return;
     }
