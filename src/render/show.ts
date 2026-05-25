@@ -335,8 +335,7 @@ interface TopRowFormatted {
   when: string;
   model: string;
   dur: string;
-  commits: string;
-  waste: boolean;
+  label: string;
 }
 
 function fmtTopRow(r: TopRowFormatted): string {
@@ -344,9 +343,9 @@ function fmtTopRow(r: TopRowFormatted): string {
   const when = r.when.padEnd(9);
   const model = r.model.padEnd(14);
   const dur = r.dur.padStart(6);
-  const commits = r.commits.padEnd(10);
-  const wasteMarker = r.waste ? yellow('⚠ waste') : '';
-  return `    ${lead}  ${when}  ${model}  ${dim(dur)}  ${commits}${wasteMarker}`;
+  const isResearch = r.label === 'research';
+  const label = isResearch ? dim(r.label.padEnd(10)) : r.label.padEnd(10);
+  return `    ${lead}  ${when}  ${model}  ${dim(dur)}  ${label}`;
 }
 
 function renderTierFlexBlock(tier: TierFlexResult): string[] {
@@ -552,9 +551,12 @@ function renderApiView(ctx: RenderCtx): string {
           when: fmtWeekdayTime(s.timestamp),
           model: shortModel(s.model_id),
           dur: fmtDuration(s.duration_ms),
-          commits: s.attr_count === 0 ? '0 commits' : s.attr_count === 1 ? '1 commit' : `${s.attr_count} commits`,
-          waste:
-            s.cost_usd >= cfg.preferences.waste_threshold_usd && s.attr_count === 0,
+          label:
+            s.attr_count === 0
+              ? 'research'
+              : s.attr_count === 1
+                ? '1 commit'
+                : `${s.attr_count} commits`,
         }),
       );
     }
@@ -585,7 +587,7 @@ function renderApiView(ctx: RenderCtx): string {
 }
 
 function renderSubscriptionView(ctx: RenderCtx): string {
-  const { cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, patterns, survival, last7 } = ctx;
+  const { cfg, last7Start, now, curr, prev, topSessions, rateHits, tierFlex, patterns, last7 } = ctx;
   const lines: string[] = [];
   const totalTokens = curr.total_tokens_in + curr.total_tokens_out;
   const prevTokens = prev.total_tokens_in + prev.total_tokens_out;
@@ -646,15 +648,17 @@ function renderSubscriptionView(ctx: RenderCtx): string {
           when: fmtWeekdayTime(s.timestamp),
           model: shortModel(s.model_id),
           dur: fmtDuration(s.duration_ms),
-          commits: s.attr_count === 0 ? '0 commits' : s.attr_count === 1 ? '1 commit' : `${s.attr_count} commits`,
-          waste:
-            s.attr_count === 0 && s.cost_usd >= cfg.preferences.waste_threshold_usd,
+          label:
+            s.attr_count === 0
+              ? 'research'
+              : s.attr_count === 1
+                ? '1 commit'
+                : `${s.attr_count} commits`,
         }),
       );
     }
   }
 
-  lines.push(...renderSurvivalBlock(survival));
   lines.push(...renderTierFlexBlock(tierFlex));
   lines.push(...renderPatternsBlock(patterns));
   lines.push(...renderProjectBreakdown(last7, false, ctx.nameMap));
