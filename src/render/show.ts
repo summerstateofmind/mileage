@@ -23,6 +23,8 @@ import {
 } from '../config/plan';
 import { computeTierFlex, TierFlexResult } from '../compute/tier_flex';
 import { detectPatterns, PatternFinding } from '../compute/patterns';
+import { computeUsageCheck, type UsageCheckResult } from '../compute/usage';
+import { bucketWindow, type EffTally } from '../compute/effectiveness';
 import {
   getSurvivalSummariesSince,
   MultiWindowSurvival,
@@ -234,6 +236,51 @@ function renderYptFooter(
   );
 }
 
+export function fillBar(pct: number | null): string {
+  if (pct === null) return '—';
+  const filled = Math.max(0, Math.min(8, Math.round((pct / 100) * 8)));
+  return '▓'.repeat(filled) + '░'.repeat(8 - filled);
+}
+
+function capBar(w: { percent_used: number | null; warning_level: string }): string {
+  const bar = fillBar(w.percent_used);
+  if (w.percent_used === null) return dim(bar);
+  const color =
+    w.warning_level === 'over' || w.warning_level === 'strong'
+      ? red
+      : w.warning_level === 'soft'
+        ? yellow
+        : green;
+  return color(`${bar} ${w.percent_used.toFixed(0)}%`);
+}
+
+function renderHeadroomLine(usage: UsageCheckResult): string {
+  const clear =
+    usage.five_hour.warning_level === 'ok' && usage.seven_day.warning_level === 'ok';
+  const glyph = clear ? dim('✓') : yellow('⚠');
+  return `  Cap   5h ${capBar(usage.five_hour)}   7d ${capBar(usage.seven_day)}   ${glyph}`;
+}
+
+function survival7dRate(m: MultiWindowSurvival): number | null {
+  const w = m.windows.find((x) => x.window_days === 7);
+  if (!w || w.summary.commits_evaluated === 0 || w.summary.rate === null) return null;
+  return w.summary.rate;
+}
+
+function renderShipLine(tally: EffTally, survival7d: number | null): string[] {
+  const buckets =
+    green(`${tally.shipped} shipped`) +
+    dim(' · ') +
+    cyan(`${tally.likely} likely`) +
+    dim(' · ') +
+    dim(`${tally.research} research`);
+  const sub =
+    survival7d !== null
+      ? `        ${tally.total} sessions · ${(survival7d * 100).toFixed(0)}% alive @7d`
+      : `        ${tally.total} sessions`;
+  return [`  Ship  ${buckets}`, dim(sub)];
+}
+
 function renderHeaderBar(
   weekLabel: string,
   planLabel: string,
@@ -415,10 +462,13 @@ export function renderLast7Days(
   const patterns = detectPatterns(db, now - 30 * 86400_000);
   const survival = getSurvivalSummariesSince(db, currStart, projectHash);
   const nameMap = getProjectNameMap(db);
+  const usage = computeUsageCheck(db, cfg.plan);
+  const effTally = bucketWindow(db, currStart, now, projectHash);
   const ctx: RenderCtx = {
     cfg, last7Start: currStart, now, curr, prev,
     topSessions, rateHits, tierFlex, patterns, survival, last7: curr7,
     nameMap, projectFilter: projectHash, windowDays, calendarWeek,
+    usage, effTally,
   };
 
   if (isApiPlan(cfg.plan)) return renderApiView(ctx);
@@ -442,6 +492,8 @@ interface RenderCtx {
   projectFilter?: string;
   windowDays: number;
   calendarWeek: boolean;
+  usage: UsageCheckResult;
+  effTally: EffTally;
 }
 
 function renderApiView(ctx: RenderCtx): string {
@@ -547,6 +599,9 @@ function renderSubscriptionView(ctx: RenderCtx): string {
       scopeLabel(ctx.projectFilter, ctx.nameMap),
     ),
   );
+  lines.push(renderHeadroomLine(ctx.usage));
+  lines.push(...renderShipLine(ctx.effTally, survival7dRate(ctx.survival)));
+  lines.push('  ' + dim('─'.repeat(44)));
 
   const tokenStr = bold(fmtNum(totalTokens));
   const tokenDelta =
