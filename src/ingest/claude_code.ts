@@ -22,7 +22,7 @@ export function isGitCommitCommand(cmd: string): boolean {
   return /(?:^|&&|;|\||\n)\s*git\s+commit\b/.test(cmd);
 }
 
-interface JsonlEntry {
+export interface JsonlEntry {
   type?: string;
   uuid?: string;
   timestamp?: string;
@@ -386,4 +386,63 @@ export function ingestClaudeCode(db: DatabaseSync, sinceMs: number): IngestSumma
     parseErrors,
     filesScanned: files.length,
   };
+}
+
+export function findSessionSegmentEntries(sessionId: string, segIdx: number): JsonlEntry[] | null {
+  const root = claudeProjectsDir();
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const d of dirents) {
+    if (!d.isDirectory()) continue;
+    const projectPath = path.join(root, d.name);
+    let files: string[];
+    try {
+      files = fs.readdirSync(projectPath);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue;
+      let lines: string[];
+      try {
+        lines = fs.readFileSync(path.join(projectPath, f), 'utf8').split(/\r?\n/);
+      } catch {
+        continue;
+      }
+      const parsed: JsonlEntry[] = [];
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          parsed.push(JSON.parse(line));
+        } catch {
+          /* skip malformed line */
+        }
+      }
+      const group = parsed
+        .filter((e) => e.sessionId === sessionId && e.timestamp)
+        .map((e) => ({ e, t: Date.parse(e.timestamp as string) }))
+        .filter((x) => Number.isFinite(x.t))
+        .sort((a, b) => a.t - b.t);
+      if (group.length === 0) continue;
+      const segments: JsonlEntry[][] = [];
+      let current: JsonlEntry[] | null = null;
+      let lastT = 0;
+      for (const { e, t } of group) {
+        if (!current || t - lastT > SESSION_GAP_MS) {
+          if (current) segments.push(current);
+          current = [e];
+        } else {
+          current.push(e);
+        }
+        lastT = t;
+      }
+      if (current) segments.push(current);
+      if (segIdx < segments.length) return segments[segIdx];
+    }
+  }
+  return null;
 }
