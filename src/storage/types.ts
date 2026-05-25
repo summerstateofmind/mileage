@@ -47,6 +47,11 @@ export interface MileageConfig {
     waste_threshold_usd: number;
   };
   excluded_repos: string[];
+  judge: {
+    enabled: boolean;
+    model_override: string | null;
+    cloud: { enabled: boolean; endpoint: string; model: string };
+  };
 }
 
 export type SessionTag = 'shipped' | 'exploring' | 'debugging' | 'dead-end';

@@ -14,6 +14,11 @@ export const DEFAULT_CONFIG: MileageConfig = {
     waste_threshold_usd: 5,
   },
   excluded_repos: [],
+  judge: {
+    enabled: false,
+    model_override: null,
+    cloud: { enabled: false, endpoint: '', model: '' },
+  },
 };
 
 export const VALID_PLANS: Plan[] = [
@@ -42,6 +47,11 @@ export function readConfig(): MileageConfig {
         ...(parsed.preferences ?? {}),
       },
       excluded_repos: parsed.excluded_repos ?? DEFAULT_CONFIG.excluded_repos,
+      judge: {
+        ...DEFAULT_CONFIG.judge,
+        ...(parsed.judge ?? {}),
+        cloud: { ...DEFAULT_CONFIG.judge.cloud, ...(parsed.judge?.cloud ?? {}) },
+      },
     };
   } catch {
     return DEFAULT_CONFIG;
@@ -113,4 +123,27 @@ export function removeExcludedRepo(repoPath: string): MileageConfig {
   const cfg = withoutExcludedRepo(readConfig(), repoPath);
   writeConfig(cfg);
   return cfg;
+}
+
+export function withJudgeEnabled(cfg: MileageConfig, enabled: boolean): MileageConfig {
+  return { ...cfg, judge: { ...cfg.judge, enabled } };
+}
+
+export function withJudgeCloud(
+  cfg: MileageConfig,
+  cloud: { enabled: boolean; endpoint: string; model: string },
+): MileageConfig {
+  return { ...cfg, judge: { ...cfg.judge, cloud } };
+}
+
+export function setJudgeEnabled(enabled: boolean): MileageConfig {
+  const c = withJudgeEnabled(readConfig(), enabled);
+  writeConfig(c);
+  return c;
+}
+
+export function setJudgeCloud(cloud: { enabled: boolean; endpoint: string; model: string }): MileageConfig {
+  const c = withJudgeCloud(readConfig(), cloud);
+  writeConfig(c);
+  return c;
 }

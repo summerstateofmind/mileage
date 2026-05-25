@@ -23,3 +23,18 @@ test('withExcludedRepo does not mutate the input config', () => {
   withExcludedRepo(c0, '/a/b');
   assert.equal(c0.excluded_repos.length, 0);
 });
+
+import { withJudgeEnabled, withJudgeCloud, DEFAULT_CONFIG as DC2 } from './plan';
+
+test('withJudgeEnabled flips the bit without mutating input', () => {
+  const c0 = { ...DC2, judge: { ...DC2.judge } };
+  const c1 = withJudgeEnabled(c0, true);
+  assert.equal(c1.judge.enabled, true);
+  assert.equal(c0.judge.enabled, false);
+});
+
+test('withJudgeCloud sets cloud config immutably', () => {
+  const c1 = withJudgeCloud({ ...DC2 }, { enabled: true, endpoint: 'https://api.x/v1/chat/completions', model: 'm' });
+  assert.equal(c1.judge.cloud.enabled, true);
+  assert.equal(c1.judge.cloud.model, 'm');
+});
