@@ -56,9 +56,9 @@ Default `config.judge.enabled = false`. `mileage enable judge` prints, then requ
 `selectJudgeModel(cfg): { kind: 'off' | 'ollama' | 'cloud'; model: string; reason: string }`. Order:
 1. If `cfg.judge.model_override` is set, honor it (`off` | an Ollama model | `cloud`).
 2. Else if cloud opt-in is configured (`cfg.judge.cloud = { enabled, endpoint, model }`), use it. The **API key is read from an env var, never written to config** (and never logged).
-3. Else probe Ollama (`GET localhost:11434/api/tags`) and free RAM:
-   - Ollama reachable + ≥ 14 GB RAM → `ollama:qwen2.5:7b`
-   - Ollama reachable + ≥ 7 GB RAM → `ollama:qwen2.5:3b`
+3. Else probe Ollama (`GET localhost:11434/api/tags`) and **total** RAM (`os.totalmem` — free RAM is transient and under-selects a capable box):
+   - Ollama reachable + ≥ 16 GB total RAM → `ollama:qwen2.5:7b` (8B-class — the local-first default)
+   - Ollama reachable + ≥ 8 GB total RAM → `ollama:qwen2.5:3b` (smaller, weaker)
    - else → `off` (with a reason string surfaced to the user).
 
 RAM probe reuses the cross-platform pattern (`os.totalmem()` / `os.freemem()`; GPU is a bonus, not required). Model names are configurable defaults, not hardcoded requirements.

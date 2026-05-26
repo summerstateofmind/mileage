@@ -16,22 +16,23 @@ The deliberate checkpoint: **produce real verdicts on your own sessions, confirm
 
 ## Step 1 — Dogfood the judge (do this next)
 
-### Pick a model path
-- **Cloud (recommended for the 8 GB dev machine).** A local 3B will mostly abstain on this hardware. Use an OpenAI-compatible endpoint with your own key.
+### Pick a model path — local-first; cloud is the fallback
+- **Local Ollama (recommended; 16 GB+ RAM). Fully on-device — nothing leaves the machine.**
   ```
-  mileage judge:set-cloud <openai-compatible-endpoint> <model>   # e.g. .../v1/chat/completions
-  set MILEAGE_JUDGE_API_KEY=...        # PowerShell: $env:MILEAGE_JUDGE_API_KEY="..."
-  mileage judge:enable                 # read disclosure, type: yes I read this
+  winget install Ollama.Ollama         # or https://ollama.com
+  ollama pull qwen2.5:7b               # 8B-class; needs ~16 GB RAM (use qwen2.5:3b on smaller/weaker boxes)
+  mileage judge:enable                 # auto-detects Ollama; press y
   mileage judge                        # judges high-effort no-commit sessions, last 30d
   ```
-  ⚠ Once `judge:set-cloud` is set, the next `judge`/sync **sends prompts + trajectory to that endpoint** (never code/diffs). That is the only point content leaves the machine.
-- **Local Ollama (free, fully on-device, but flaky on 8 GB → expect many `unjudged`).**
+- **Cloud fallback (for <16 GB machines — incl. the 8 GB dev box, where a local 3B mostly abstains).** OpenAI-compatible endpoint + your own key (not Anthropic-native).
   ```
-  # install Ollama from https://ollama.com, then:
-  ollama pull qwen2.5:3b
+  # Groq (free tier) shown; OpenAI alt: https://api.openai.com/v1/chat/completions + gpt-4o-mini
+  mileage judge:set-cloud "https://api.groq.com/openai/v1/chat/completions" "llama-3.3-70b-versatile"
+  $env:MILEAGE_JUDGE_API_KEY="gsk_..."  # persist: [Environment]::SetEnvironmentVariable('MILEAGE_JUDGE_API_KEY','...','User')
   mileage judge:enable
   mileage judge
   ```
+  ⚠ Once cloud is configured, the next `judge`/sync **sends prompts + trajectory to that endpoint** (never code/diffs) — the only point content leaves the machine.
 
 ### Inspect the verdicts
 ```

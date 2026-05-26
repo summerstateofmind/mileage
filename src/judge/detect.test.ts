@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseModel } from './detect';
 
-const base = { freeRamGb: 16, ollamaModels: ['qwen2.5:7b', 'qwen2.5:3b'], override: null as string | null, cloud: { enabled: false, model: '' } };
+const base = { totalRamGb: 16, ollamaModels: ['qwen2.5:7b', 'qwen2.5:3b'], override: null as string | null, cloud: { enabled: false, model: '' } };
 
 test('override off → off', () => {
   assert.equal(chooseModel({ ...base, override: 'off' }).kind, 'off');
@@ -28,8 +28,8 @@ test('auto: 16GB + 7b available → 7b', () => {
   assert.equal(chooseModel({ ...base }).model, 'qwen2.5:7b');
 });
 test('auto: 8GB → small model', () => {
-  assert.equal(chooseModel({ ...base, freeRamGb: 8 }).model, 'qwen2.5:3b');
+  assert.equal(chooseModel({ ...base, totalRamGb: 8 }).model, 'qwen2.5:3b');
 });
-test('auto: <7GB → off', () => {
-  assert.equal(chooseModel({ ...base, freeRamGb: 4 }).kind, 'off');
+test('auto: <8GB → off', () => {
+  assert.equal(chooseModel({ ...base, totalRamGb: 4 }).kind, 'off');
 });
