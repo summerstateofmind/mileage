@@ -62,13 +62,20 @@ Computes:
 You need Node 22+ (uses the built-in `node:sqlite`, no native build deps).
 
 ```bash
-git clone https://github.com/summerstateofmind/mileage.git
-cd mileage
-npm install
-npm run build
-npm link
+npm install -g mileage-cli
 mileage --version
 ```
+
+The npm package is **`mileage-cli`**; the command it installs is **`mileage`**. Update anytime with `npm i -g mileage-cli@latest`.
+
+<details><summary>Or from source (for development)</summary>
+
+```bash
+git clone https://github.com/summerstateofmind/mileage.git
+cd mileage && npm install && npm run build && npm link
+```
+
+</details>
 
 ## Quickstart
 

@@ -1,19 +1,21 @@
 {
-  "name": "mileage",
+  "name": "mileage-cli",
   "version": "0.1.0",
   "description": "Measure your AI coding efficiency. YPT (Yield Per Token) for solo devs.",
   "bin": {
-    "mileage": "./dist/cli.js",
-    "mileage-mcp": "./dist/mcp/server.js"
+    "mileage": "dist/cli.js",
+    "mileage-mcp": "dist/mcp/server.js"
   },
   "main": "./dist/cli.js",
   "type": "commonjs",
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "clean": "rimraf dist",
-    "test": "tsc && node --test \"dist/**/*.test.js\""
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "prepublishOnly": "npm run clean && npm run build && rimraf --glob \"dist/**/*.test.*\""
   },
   "keywords": [
     "ai",
@@ -23,10 +25,12 @@
     "ypt",
     "mileage"
   ],
-  "author": "",
+  "author": "summerstateofmind",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/summerstateofmind/mileage.git" },
+  "homepage": "https://github.com/summerstateofmind/mileage#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
