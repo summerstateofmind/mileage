@@ -5,34 +5,30 @@
 Mileage is a local-first CLI that correlates your AI token spend with real git outcomes: commits, code survival, and rate-limit hits. It surfaces the bank-statement-for-AI-spend moment. Built for developers spending $100–1,500/mo on AI tools who want helpful data.
 
 ```
-Mileage  ·  this week  ·  May 16 – May 23
+Mileage  ·  Last 7 days  ·  May 18 – May 25
   Plan: Claude Max — 5× ($100/mo)   Scope: all projects
 
-  Tokens used       24,253,539  ▲ +7% vs prior week (22,768,578)
-  Outcomes          9 commits shipped  (vs 8 prior week)
-  Rate-limit hits   0 this week ✓
-  Cost-equivalent   $1,994.97 (informational, your plan is flat-rate)
+  Cap     5h ▓▓░░░░░░  28%   7d ░░░░░░░░   4%   ✓
+  Ship    71 shipped · 0 likely · 104 research
+          175 sessions · 75% alive @7d
+  ────────────────────────────────────────────
+  Tokens used       41,892,069  ▲ +51% vs prior period
+  Rate-limit hits   ⚠ 8 this week  (Mon 13:42, Mon 13:40 …)
+  Cost-equivalent   $2,722.48 (informational — flat-rate plan)
 
   Top sessions (by usage)
-    10%  Thu 11:38  opus-4-7   1h00m   0 commits  ⚠ waste
-     6%  Sun 08:15  opus-4-7   1h19m   0 commits  ⚠ waste
-    ...
-
-  Code health       82% alive at 7d   (12 commit evaluations)
+    10%  Thu 11:38  opus-4-7   1h00m   8 commits
+     5%  Sat 21:44  opus-4-7   1h45m   10 commits
 
   Tier-flex audit (last 30 days)
-    opus-4-7   171 sessions   yield 9%   avg $22.26/session
-    opus-4-6    25 sessions   yield 0%   avg  $3.79/session
+    opus-4-7   227 sessions   yield 12%   avg $19.40/session
 
-  Patterns I noticed (last 30 days)
-  → 26 expensive sessions (>$30) shipped zero commits, 62% of your total spend.
-
-  YPT  38.2 / 100   (`mileage explain ypt` for the breakdown)
+  YPT  38.2 / 100   (below the fold · `mileage explain ypt`)
 ```
 
 ## Status
 
-V0.3 in active development. Working on the author's machine. Not yet published to npm. **Pre-1.0, install at your own risk.**
+V0.3 in active development; published on npm as **`mileage-cli`**. Single-author, dogfooded daily. **Pre-1.0 — expect rough edges.**
 
 ## What it does
 
@@ -54,8 +50,9 @@ Computes:
 - **No code content read.** Only metadata: line counts, file paths, timestamps, token counts, commit hashes.
 - Uses `git log --numstat` and `git diff --stat`. Not `git show`, not content diffs.
 - From Claude Code JSONL, only reads: `timestamp`, `sessionId`, `requestId`, `usage`, `model`, tool-call commands (regex-extracted for commit hashes). Not conversation content, prompts, or code blocks.
-- No telemetry. No cloud. Nothing leaves your machine.
+- No telemetry, no analytics, no cloud sync. By default, nothing leaves your machine.
 - Does not call Anthropic OAuth endpoints.
+- **Opt-in judge (off by default):** `mileage judge:enable` lets a model read your *prompts* + tool-action metadata (never code or diffs) for no-commit "research" sessions, to tell productive research from spinning. It uses a **local** model on-device by default; a separate, explicit **cloud opt-in** sends prompts + trajectory only to an endpoint you configure. `mileage judge:disable` turns it off and purges all verdicts.
 
 ## Install
 
