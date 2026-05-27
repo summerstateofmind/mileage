@@ -744,7 +744,7 @@ export function getAllVerdicts(db: DatabaseSync): VerdictListRow[] {
        FROM session_verdicts v
        LEFT JOIN events e ON e.type = 'session' AND e.session_id = v.session_id
        GROUP BY v.session_id
-       ORDER BY v.confidence DESC`,
+       ORDER BY start_ts DESC`,
     )
     .all() as unknown as VerdictListRow[];
 }
