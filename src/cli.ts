@@ -19,7 +19,7 @@ import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo, 
 import { runJudgePass } from './judge/run_pass';
 import { completionScript } from './cli/completion';
 import { selectJudgeModel } from './judge/detect';
-import { purgeVerdicts, getAllVerdicts } from './storage/db';
+import { purgeVerdicts, getAllVerdicts, getProjectNameMap } from './storage/db';
 import * as readline from 'node:readline';
 import { runTagFlow } from './cli/tag';
 import { runReviewFlow } from './cli/review';
@@ -573,17 +573,37 @@ program
         console.log(dim('No verdicts yet. Run `mileage judge` first (needs a model configured).'));
         return;
       }
+      const names = getProjectNameMap(db);
+      const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const fmtWhen = (ts: number | null): string => {
+        if (ts === null) return '—';
+        const d = new Date(ts);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hh}:${mm}`;
+      };
+      const projOf = (h: string | null): string => (h ? (names.get(h) ?? h.slice(0, 8)) : '—');
+      const W = { when: 14, proj: 14, verdict: 12, conf: 6 };
       const lines: string[] = [
         '',
         bold('Session-intent verdicts') + dim(`  ·  ${rows.length} judged`),
         '',
+        dim(
+          '  ' +
+            'When'.padEnd(W.when) +
+            'Project'.padEnd(W.proj) +
+            'Verdict'.padEnd(W.verdict) +
+            'Conf'.padEnd(W.conf) +
+            'Why',
+        ),
       ];
       for (const r of rows) {
         const color = r.verdict === 'productive' ? green : r.verdict === 'spinning' ? red : dim;
-        const id = dim(r.session_id.slice(0, 8));
-        const verdict = color(r.verdict.padEnd(10));
-        const conf = dim(`${(r.confidence * 100).toFixed(0).padStart(3)}%`);
-        lines.push(`  ${id}  ${verdict} ${conf}  ${r.rationale ?? ''}`);
+        const when = fmtWhen(r.start_ts).padEnd(W.when);
+        const proj = projOf(r.project_hash).slice(0, W.proj - 1).padEnd(W.proj);
+        const verdict = r.verdict.padEnd(W.verdict);
+        const conf = `${(r.confidence * 100).toFixed(0)}%`.padEnd(W.conf);
+        lines.push(`  ${dim(when)}${dim(proj)}${color(verdict)}${dim(conf)}${r.rationale ?? ''}`);
       }
       lines.push(
         '',

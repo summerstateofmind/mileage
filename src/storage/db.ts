@@ -719,10 +719,34 @@ export function getJudgedSessionIds(db: DatabaseSync): Set<string> {
   return new Set(rows.map((r) => r.session_id));
 }
 
-export function getAllVerdicts(db: DatabaseSync): SessionVerdictRow[] {
+export interface VerdictListRow {
+  session_id: string;
+  verdict: string;
+  confidence: number;
+  rationale: string | null;
+  start_ts: number | null;
+  project_hash: string | null;
+  tokens: number;
+}
+
+// Verdict session_ids are the composite `origSessionId:segmentIndex`, which is
+// exactly how session events are keyed too — join directly for context.
+export function getAllVerdicts(db: DatabaseSync): VerdictListRow[] {
   return db
-    .prepare(`SELECT * FROM session_verdicts ORDER BY confidence DESC`)
-    .all() as unknown as SessionVerdictRow[];
+    .prepare(
+      `SELECT v.session_id AS session_id,
+              v.verdict AS verdict,
+              v.confidence AS confidence,
+              v.rationale AS rationale,
+              MIN(e.timestamp) AS start_ts,
+              MAX(e.project_hash) AS project_hash,
+              COALESCE(SUM(COALESCE(e.tokens_in, 0) + COALESCE(e.tokens_out, 0)), 0) AS tokens
+       FROM session_verdicts v
+       LEFT JOIN events e ON e.type = 'session' AND e.session_id = v.session_id
+       GROUP BY v.session_id
+       ORDER BY v.confidence DESC`,
+    )
+    .all() as unknown as VerdictListRow[];
 }
 
 export function purgeVerdicts(db: DatabaseSync): void {
