@@ -719,6 +719,12 @@ export function getJudgedSessionIds(db: DatabaseSync): Set<string> {
   return new Set(rows.map((r) => r.session_id));
 }
 
+export function getAllVerdicts(db: DatabaseSync): SessionVerdictRow[] {
+  return db
+    .prepare(`SELECT * FROM session_verdicts ORDER BY confidence DESC`)
+    .all() as unknown as SessionVerdictRow[];
+}
+
 export function purgeVerdicts(db: DatabaseSync): void {
   db.exec(`DELETE FROM session_verdicts`);
 }

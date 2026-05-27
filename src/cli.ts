@@ -19,7 +19,7 @@ import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo, 
 import { runJudgePass } from './judge/run_pass';
 import { completionScript } from './cli/completion';
 import { selectJudgeModel } from './judge/detect';
-import { purgeVerdicts } from './storage/db';
+import { purgeVerdicts, getAllVerdicts } from './storage/db';
 import * as readline from 'node:readline';
 import { runTagFlow } from './cli/tag';
 import { runReviewFlow } from './cli/review';
@@ -563,6 +563,40 @@ program
   });
 
 program
+  .command('judge:list')
+  .description('Review session-intent judge verdicts (most confident first)')
+  .action(() => {
+    const db = openDb();
+    try {
+      const rows = getAllVerdicts(db);
+      if (rows.length === 0) {
+        console.log(dim('No verdicts yet. Run `mileage judge` first (needs a model configured).'));
+        return;
+      }
+      const lines: string[] = [
+        '',
+        bold('Session-intent verdicts') + dim(`  ·  ${rows.length} judged`),
+        '',
+      ];
+      for (const r of rows) {
+        const color = r.verdict === 'productive' ? green : r.verdict === 'spinning' ? red : dim;
+        const id = dim(r.session_id.slice(0, 8));
+        const verdict = color(r.verdict.padEnd(10));
+        const conf = dim(`${(r.confidence * 100).toFixed(0).padStart(3)}%`);
+        lines.push(`  ${id}  ${verdict} ${conf}  ${r.rationale ?? ''}`);
+      }
+      lines.push(
+        '',
+        dim('  productive = real progress · spinning = stuck/looping · uncertain = low confidence'),
+        '',
+      );
+      console.log(lines.join('\n'));
+    } finally {
+      db.close();
+    }
+  });
+
+program
   .command('judge')
   .description('Run a judging pass over high-effort no-commit sessions (last 30 days)')
   .option('--refresh', 're-judge sessions even if already cached', false)
@@ -580,6 +614,7 @@ program
         console.log(yellow('No model available: ') + r.model);
       } else {
         console.log(`Judged ${r.judged} session(s) with ${r.model}.`);
+        if (r.judged > 0) console.log(dim('Review them with `mileage judge:list`.'));
       }
     } finally {
       db.close();
