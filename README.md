@@ -8,12 +8,12 @@ Mileage is a local-first CLI that correlates your AI token spend with real git o
 Mileage  ·  Last 7 days  ·  May 18 – May 25
   Plan: Claude Max — 5× ($100/mo)   Scope: all projects
 
-  Cap     5h ▓▓░░░░░░  28%   7d ░░░░░░░░   4%   ✓
+  Cap     run /usage in Claude Code for exact, live headroom
   Ship    71 shipped · 0 likely · 104 research
-          175 sessions · 75% alive @7d
+          75% of code alive @7d
   ────────────────────────────────────────────
   Tokens used       41,892,069  ▲ +51% vs prior period
-  Rate-limit hits   ⚠ 8 this week  (Mon 13:42, Mon 13:40 …)
+  Rate-limit hits   ⚠ 3 this week  (Mon 13:40, Sun 22:10 …)
   Cost-equivalent   $2,722.48 (informational — flat-rate plan)
 
   Top sessions (by usage)
@@ -180,7 +180,7 @@ Storage: SQLite via `node:sqlite` at `~/.mileage/metrics.db`. Config at `~/.mile
 ## Caveats
 
 - **Plan auto-detection from `~/.claude/.credentials.json` is intentionally NOT done**, even though the data is there. Anthropic's "Authentication and credential use" policy restricts third-party use of OAuth tokens, and we want to stay clearly on the safe side of that line. Declare your plan via `mileage init` or `mileage config:set-plan`.
-- **Cap utilization is approximate.** Anthropic doesn't publish exact Max caps. For live, authoritative cap percentages, use `/usage` inside Claude Code.
+- **Cap utilization is not estimated.** Anthropic's real limit accounting is unpublished and weights cache tokens, so Mileage deliberately does not show a cap % — an estimate would only contradict the truth. Mileage tracks token volume and when you actually hit the wall (rate-limit hits, de-duplicated into distinct events); for live cap %, use `/usage` inside Claude Code.
 - **Single-tool support for V0.2 and V0.3.** Claude Code is the only AI tool ingested. Cursor and Copilot are planned for V0.4.
 
 ## License

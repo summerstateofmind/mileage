@@ -4,6 +4,7 @@ import {
   getTopExpensiveSessions,
   getRateLimitHitsSince,
 } from '../storage/db';
+import { clusterRateLimitHits } from '../ingest/rate_limits';
 import { computeTierFlex } from '../compute/tier_flex';
 import { detectPatterns } from '../compute/patterns';
 import { getSurvivalSummarySince } from '../compute/survival';
@@ -75,7 +76,7 @@ export function renderWeeklyReport(db: DatabaseSync, days: number = 7): string {
   const prevCommits = aggregateCommits(prev);
 
   const top = getTopExpensiveSessions(db, start, 5);
-  const rateHits = getRateLimitHitsSince(db, start);
+  const rateHits = clusterRateLimitHits(getRateLimitHitsSince(db, start));
   const tierFlex = computeTierFlex(db, now - 30 * MS_PER_DAY);
   const patterns = detectPatterns(db, now - 30 * MS_PER_DAY);
   const survival = getSurvivalSummarySince(db, start);

@@ -311,7 +311,7 @@ program
 
 program
   .command('check')
-  .description('Quick cap-usage check (5-hour + 7-day rolling vs estimated plan cap)')
+  .description('Token volume in the rolling 5h/7d windows + heavy-day baseline (run /usage for exact cap %)')
   .option('--json', 'output structured JSON')
   .action((opts) => {
     const db = openDb();
@@ -329,31 +329,21 @@ program
   });
 
 function renderUsageCheck(usage: ReturnType<typeof computeUsageCheck>): void {
-  const colorForLevel = (level: string) => {
-    if (level === 'over' || level === 'strong') return red;
-    if (level === 'soft') return yellow;
-    return green;
-  };
+  // No estimated cap % here: Anthropic's real limit accounting is unpublished and
+  // weights cache tokens, so any % we showed would only contradict `/usage`. We
+  // surface the honest local signals — token volume + heavy-day baseline — and
+  // defer the cap % to /usage, which reads Anthropic's server-side truth.
   const lines: string[] = [];
   lines.push('');
   lines.push(bold('Mileage cap check') + dim('  ·  plan: ' + usage.plan));
   lines.push('');
   for (const win of [usage.five_hour, usage.seven_day]) {
-    const labelColor = colorForLevel(usage.five_hour.warning_level);
-    void labelColor;
-    const c = colorForLevel(win.warning_level);
-    const pct =
-      win.percent_used === null ? '—' : c(win.percent_used.toFixed(0) + '%');
-    const cap =
-      win.cap_estimate === null
-        ? dim('(no estimate for this plan)')
-        : dim('of ' + win.cap_estimate.toLocaleString() + ' tokens (est.)');
     const reset =
       win.ms_until_reset === null
         ? ''
-        : dim('  · resets in ~' + fmtMsDuration(win.ms_until_reset));
+        : dim('  · window resets in ~' + fmtMsDuration(win.ms_until_reset));
     lines.push(
-      `  ${win.window_label.padEnd(4)} ${pct.padStart(10)}  ${win.tokens_used.toLocaleString().padStart(13)} tokens  ${cap}${reset}`,
+      `  ${win.window_label.padEnd(4)} ${win.tokens_used.toLocaleString().padStart(13)} tokens used${reset}`,
     );
   }
   lines.push('');
@@ -365,14 +355,14 @@ function renderUsageCheck(usage: ReturnType<typeof computeUsageCheck>): void {
     );
     lines.push('');
   }
-  const actionColor = colorForLevel(
-    usage.five_hour.warning_level === 'ok'
-      ? usage.seven_day.warning_level
-      : usage.five_hour.warning_level,
+  lines.push(
+    '  ' + magenta(bold('→')) + ' For exact, live cap usage, run ' + bold('/usage') + ' inside Claude Code.',
   );
-  lines.push('  ' + magenta(bold('→')) + ' ' + actionColor(usage.recommended_action));
-  lines.push('');
-  lines.push(dim('  ' + usage.caveat));
+  lines.push(
+    dim(
+      "    Mileage tracks your token volume and when you hit the wall — not Anthropic's cap %, which only /usage reads accurately.",
+    ),
+  );
   lines.push('');
   console.log(lines.join('\n'));
 }

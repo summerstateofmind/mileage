@@ -23,7 +23,7 @@ import {
 } from '../config/plan';
 import { computeTierFlex, TierFlexResult } from '../compute/tier_flex';
 import { detectPatterns, PatternFinding } from '../compute/patterns';
-import { computeUsageCheck, type UsageCheckResult, type WindowUsage } from '../compute/usage';
+import { clusterRateLimitHits } from '../ingest/rate_limits';
 import { bucketWindow, type EffTally } from '../compute/effectiveness';
 import {
   getSurvivalSummariesSince,
@@ -235,29 +235,11 @@ function renderYptFooter(
   );
 }
 
-export function fillBar(pct: number | null): string {
-  if (pct === null) return '—';
-  const filled = Math.max(0, Math.min(8, Math.round((pct / 100) * 8)));
-  return '▓'.repeat(filled) + '░'.repeat(8 - filled);
-}
-
-function capBar(w: WindowUsage): string {
-  const bar = fillBar(w.percent_used);
-  if (w.percent_used === null) return dim(bar);
-  const color =
-    w.warning_level === 'over' || w.warning_level === 'strong'
-      ? red
-      : w.warning_level === 'soft'
-        ? yellow
-        : green;
-  return color(`${bar} ${w.percent_used.toFixed(0).padStart(3)}%`);
-}
-
-function renderHeadroomLine(usage: UsageCheckResult): string {
-  const clear =
-    usage.five_hour.warning_level === 'ok' && usage.seven_day.warning_level === 'ok';
-  const glyph = clear ? dim('✓') : yellow('⚠');
-  return `  Cap   5h ${capBar(usage.five_hour)}   7d ${capBar(usage.seven_day)}   ${glyph}`;
+function renderCapPointer(): string {
+  // We can't match Anthropic's real cap accounting — it weights cache tokens and
+  // the limit is unpublished — so an estimated % would only contradict /usage,
+  // which is the source of truth and ships inside Claude Code. Cite it, don't fake it.
+  return `  Cap   ${dim('run /usage in Claude Code for exact, live headroom')}`;
 }
 
 function survival7dRate(m: MultiWindowSurvival): number | null {
@@ -273,11 +255,14 @@ function renderShipLine(tally: EffTally, survival7d: number | null): string[] {
     cyan(`${tally.likely} likely`) +
     dim(' · ') +
     dim(`${tally.research} research`);
-  const sub =
-    survival7d !== null
-      ? `        ${tally.total} sessions · ${(survival7d * 100).toFixed(0)}% alive @7d`
-      : `        ${tally.total} sessions`;
-  return [`  Ship  ${buckets}`, dim(sub)];
+  // The bucket counts already sum to total sessions, so a separate "N sessions"
+  // line is redundant. Show only the non-redundant survival, and omit the
+  // sub-line entirely when no commits were evaluated in the window.
+  const lines = [`  Ship  ${buckets}`];
+  if (survival7d !== null) {
+    lines.push(dim(`        ${(survival7d * 100).toFixed(0)}% of code alive @7d`));
+  }
+  return lines;
 }
 
 function renderHeaderBar(
@@ -455,18 +440,17 @@ export function renderLast7Days(
     TOP_SESSIONS_N,
     projectHash,
   );
-  const rateHits = getRateLimitHitsSince(db, currStart);
+  const rateHits = clusterRateLimitHits(getRateLimitHitsSince(db, currStart));
   const tierFlex = computeTierFlex(db, now - 30 * 86400_000);
   const patterns = detectPatterns(db, now - 30 * 86400_000);
   const survival = getSurvivalSummariesSince(db, currStart, projectHash);
   const nameMap = getProjectNameMap(db);
-  const usage = computeUsageCheck(db, cfg.plan);
   const effTally = bucketWindow(db, currStart, now, projectHash);
   const ctx: RenderCtx = {
     cfg, last7Start: currStart, now, curr, prev,
     topSessions, rateHits, tierFlex, patterns, survival, last7: curr7,
     nameMap, projectFilter: projectHash, windowDays, calendarWeek,
-    usage, effTally,
+    effTally,
   };
 
   if (isApiPlan(cfg.plan)) return renderApiView(ctx);
@@ -490,7 +474,6 @@ interface RenderCtx {
   projectFilter?: string;
   windowDays: number;
   calendarWeek: boolean;
-  usage: UsageCheckResult;
   effTally: EffTally;
 }
 
@@ -598,7 +581,7 @@ function renderSubscriptionView(ctx: RenderCtx): string {
   // The Ship line counts SESSIONS over a ms-precise window (bucketWindow); the
   // Outcomes and Tokens lines below count commits/tokens from date-floored daily
   // snapshots — different lenses, so the window edges can differ slightly.
-  lines.push(renderHeadroomLine(ctx.usage));
+  lines.push(renderCapPointer());
   lines.push(...renderShipLine(ctx.effTally, survival7dRate(ctx.survival)));
   lines.push('  ' + dim('─'.repeat(44)));
 

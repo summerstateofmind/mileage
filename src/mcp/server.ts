@@ -12,6 +12,7 @@ import { getSurvivalSummariesSince } from '../compute/survival';
 import { computeTierFlex } from '../compute/tier_flex';
 import { detectPatterns } from '../compute/patterns';
 import { getTopExpensiveSessions, getRateLimitHitsSince } from '../storage/db';
+import { clusterRateLimitHits } from '../ingest/rate_limits';
 import { renderExplain } from '../render/show';
 import type { SessionTag } from '../storage/types';
 
@@ -316,7 +317,7 @@ async function main(): Promise<void> {
       const db = openDb();
       try {
         const sinceMs = Date.now() - (args.days ?? 7) * 86_400_000;
-        const hits = getRateLimitHitsSince(db, sinceMs);
+        const hits = clusterRateLimitHits(getRateLimitHitsSince(db, sinceMs));
         return jsonContent({ count: hits.length, hits });
       } finally {
         db.close();

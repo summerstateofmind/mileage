@@ -5,6 +5,7 @@ import {
   getRateLimitHitsSince,
   getProjectNameMap,
 } from '../storage/db';
+import { clusterRateLimitHits } from '../ingest/rate_limits';
 import { readConfig } from '../config/plan';
 import { computeTierFlex } from '../compute/tier_flex';
 import { detectPatterns } from '../compute/patterns';
@@ -85,7 +86,7 @@ export function buildShowJson(
   const currAgg = aggregate(curr);
   const priorAgg = aggregate(prior);
   const topSessions = getTopExpensiveSessions(db, currStart, 5, projectHash);
-  const rateHits = getRateLimitHitsSince(db, currStart);
+  const rateHits = clusterRateLimitHits(getRateLimitHitsSince(db, currStart));
   const tierFlex = computeTierFlex(db, now - 30 * 86400_000);
   const patterns = detectPatterns(db, now - 30 * 86400_000);
   const survival = getSurvivalSummariesSince(db, currStart, projectHash);

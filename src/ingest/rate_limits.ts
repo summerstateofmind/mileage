@@ -38,6 +38,30 @@ function makeHit(text: string, timestamp: number, sessionId: string | null): Rat
   };
 }
 
+// A single account-level cap exhaustion produces many 429 entries: retry backoff
+// within one instance, AND simultaneous 429s across concurrently-running Claude
+// Code instances (the cap is per-account — hit once, every instance gets 429ed).
+// Collapse hits whose consecutive gap is under this threshold into ONE event,
+// regardless of which session/instance logged them. Once the cap is hit you stay
+// blocked until the window resets (hours away), so genuinely distinct wall-hits
+// are always far apart — a 10-minute gap can't merge two real events.
+export const RATE_LIMIT_CLUSTER_GAP_MS = 10 * 60_000;
+
+export function clusterRateLimitHits(
+  hits: RateLimitHit[],
+  gapMs: number = RATE_LIMIT_CLUSTER_GAP_MS,
+): RateLimitHit[] {
+  if (hits.length <= 1) return hits;
+  const asc = [...hits].sort((a, b) => a.timestamp - b.timestamp);
+  const events: RateLimitHit[] = [asc[0]]; // earliest hit = when the wall was first hit
+  let prevTs = asc[0].timestamp;
+  for (let i = 1; i < asc.length; i++) {
+    if (asc[i].timestamp - prevTs > gapMs) events.push(asc[i]);
+    prevTs = asc[i].timestamp;
+  }
+  return events.reverse(); // DESC, matching getRateLimitHitsSince's contract
+}
+
 export function detectRateLimitHit(
   text: string,
   timestamp: number,

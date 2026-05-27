@@ -7,9 +7,9 @@ _Updated 2026-05-25._ A one-page map of what's shipped and what's next. Detailed
 ## Shipped
 - **V0.1–V0.2 core** — ingest (Claude Code JSONL + `git log`), 3-tier attribution, cost + YPT, code survival (7d/30d), tier-flex audit, behavioral patterns, 90-day heatmap, plan-aware `show`, `tag`/`review`/`report`, MCP server + skill, cap-usage `check`, first-run wizard, post-commit hook.
 - **Attribution sharpening + multi-repo sync** — compound `git commit` detection (10% → 100%), concurrency-aware `high`/`inferred` tiers that abstain under parallel sessions, and `mileage sync` now git-scans every known repo minus a `config:exclude-repo` list. Session-attribution coverage **7.5% → 39%**.
-- **Flat-rate effectiveness view** — `show` (subscription plans) leads with **Cap headroom + Shipped / Likely / Research**; the `⚠ waste` label is retired (no-commit framed as research, never waste) in `show` and `report`.
+- **Flat-rate effectiveness view** — `show` (subscription plans) leads with **Shipped / Likely / Research** + code survival; the `⚠ waste` label is retired (no-commit framed as research, never waste) in `show` and `report`. The estimated cap-% gauge was **removed** — it can't match Anthropic's real accounting (unpublished, cache-weighted), so `show`/`check` now cite `/usage` (the source of truth) instead of contradicting it.
 - **Session-intent judge — Foundation** — opt-in `judge:enable` gate, **local-first** model selection (`detect`: total-RAM tiers — 16 GB+ → 7-8B, 8 GB → 3B — with cloud as an explicit fallback), prompts+trajectory extraction (content confined to `src/judge/input.ts`), Ollama/cloud runner, `session_verdicts` cache, `mileage judge`. **View integration + YPT feed are NOT wired yet** (see Up next).
-- **CLI polish** — cap-hit detection from API-error entries (`isApiErrorMessage`/429), sync-ago `m`/`h`/`d`, cap-line alignment, `judge:enable` `[y/N]` prompt, shell completion (`mileage completion pwsh|bash|zsh`).
+- **CLI polish** — cap-hit detection from API-error entries (`isApiErrorMessage`/429), **rate-limit-hit clustering** (retry-spam + simultaneous 429s across concurrent instances collapse into one true wall-hit event; a single account cap is hit once), sync-ago `m`/`h`/`d`, `judge:enable` `[y/N]` prompt, shell completion (`mileage completion pwsh|bash|zsh`).
 - **Published to npm** as `mileage-cli` (one-command install).
 
 ## Up next
@@ -18,7 +18,6 @@ _Updated 2026-05-25._ A one-page map of what's shipped and what's next. Detailed
 3. **Judge v2 — YPT feed** — confidence-gated `productive` term contributes to `composite_outcomes`/YPT, once calibrated (re-opens the cache-not-snapshot decision).
 
 ## Backlog (polish)
-- **Rate-limit hits over-count raw 429 entries** — a single cap event logs several retries (~2 events showed as 8). Cluster near-simultaneous hits into distinct events.
 - **bash/zsh completion** is field-untested (PowerShell is solid) — testers wanted (README flags it).
 - Prune `.js.map`/`.d.ts` from the npm package (dead weight; `src` isn't shipped).
 - Align names: GitHub repo is `summerstateofmind/mileage`, npm package is `mileage-cli`.
