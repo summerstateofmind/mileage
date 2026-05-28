@@ -583,31 +583,38 @@ program
         return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hh}:${mm}`;
       };
       const projOf = (h: string | null): string => (h ? (names.get(h) ?? h.slice(0, 8)) : '—');
-      const W = { when: 14, proj: 14, verdict: 12, conf: 6 };
+      const tierColor = (t: string) => {
+        if (t === 'high') return (s: string) => bold(green(s));
+        if (t === 'solid') return green;
+        if (t === 'thin') return yellow;
+        if (t === 'stalled') return red;
+        return dim;
+      };
+      const W = { when: 14, proj: 14, tier: 10, conf: 6 };
       const lines: string[] = [
         '',
-        bold('Session-intent verdicts') + dim(`  ·  ${rows.length} judged`),
+        bold('Session yield verdicts') + dim(`  ·  ${rows.length} judged`),
         '',
         dim(
           '  ' +
             'When'.padEnd(W.when) +
             'Project'.padEnd(W.proj) +
-            'Verdict'.padEnd(W.verdict) +
+            'Tier'.padEnd(W.tier) +
             'Conf'.padEnd(W.conf) +
             'Why',
         ),
       ];
       for (const r of rows) {
-        const color = r.verdict === 'productive' ? green : r.verdict === 'spinning' ? red : dim;
+        const color = tierColor(r.tier);
         const when = fmtWhen(r.start_ts).padEnd(W.when);
         const proj = projOf(r.project_hash).slice(0, W.proj - 1).padEnd(W.proj);
-        const verdict = r.verdict.padEnd(W.verdict);
+        const tier = r.tier.padEnd(W.tier);
         const conf = `${(r.confidence * 100).toFixed(0)}%`.padEnd(W.conf);
-        lines.push(`  ${dim(when)}${dim(proj)}${color(verdict)}${dim(conf)}${r.rationale ?? ''}`);
+        lines.push(`  ${dim(when)}${dim(proj)}${color(tier)}${dim(conf)}${r.rationale ?? ''}`);
       }
       lines.push(
         '',
-        dim('  productive = real progress · spinning = stuck/looping · uncertain = low confidence'),
+        dim('  high = focused progress · solid = good session · thin = some progress · stalled = stuck/looping'),
         '',
       );
       console.log(lines.join('\n'));

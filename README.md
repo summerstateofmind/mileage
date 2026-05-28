@@ -52,7 +52,7 @@ Computes:
 - From Claude Code JSONL, only reads: `timestamp`, `sessionId`, `requestId`, `usage`, `model`, tool-call commands (regex-extracted for commit hashes). Not conversation content, prompts, or code blocks.
 - No telemetry, no analytics, no cloud sync. By default, nothing leaves your machine.
 - Does not call Anthropic OAuth endpoints.
-- **Opt-in judge (off by default):** `mileage judge:enable` lets a model read your *prompts* + tool-action metadata (never code or diffs) for no-commit "research" sessions, to tell productive research from spinning. It uses a **local** model on-device by default; a separate, explicit **cloud opt-in** sends prompts + trajectory only to an endpoint you configure. `mileage judge:disable` turns it off and purges all verdicts.
+- **Opt-in judge (off by default):** `mileage judge:enable` lets a model read your *prompts* + tool-action metadata (never code or diffs) for high-effort no-commit "research" sessions, to grade session **yield** on four tiers: `high` / `solid` / `thin` / `stalled`. Yield is defined by trajectory and forward progress — never by commit count. Uses a **local** model on-device by default; a separate, explicit **cloud opt-in** sends prompts + action metadata only to an endpoint you configure. `mileage judge:disable` turns it off and purges all verdicts.
 
 ## Install
 

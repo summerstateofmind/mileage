@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_last_seen ON projects(last_seen);
 
 CREATE TABLE IF NOT EXISTS session_verdicts (
   session_id  TEXT PRIMARY KEY,
-  verdict     TEXT NOT NULL CHECK (verdict IN ('productive','spinning','uncertain')),
+  tier        TEXT NOT NULL CHECK (tier IN ('high','solid','thin','stalled','unrated')),
   confidence  REAL NOT NULL,
   model       TEXT NOT NULL,
   rationale   TEXT,

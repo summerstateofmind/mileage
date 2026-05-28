@@ -7,7 +7,7 @@ import { selectJudgeModel } from './detect';
 import { buildJudgeInput } from './input';
 import { runJudge, ollamaTransport, cloudTransport, type JudgeTransport } from './runner';
 
-const JUDGE_EFFORT_TOKENS = 250_000;
+const JUDGE_EFFORT_TOKENS = 100_000;
 const JUDGE_MAX_PER_PASS = 8;
 
 // v1 uses a tokens-only effort proxy (research sessions are reliably high-token in
@@ -57,7 +57,7 @@ export async function runJudgePass(
     const result = await runJudge(model, input, transport);
     insertVerdict(db, {
       session_id: c.session_id,
-      verdict: result.verdict,
+      tier: result.tier,
       confidence: result.confidence,
       model: model.model || model.kind,
       rationale: result.rationale,

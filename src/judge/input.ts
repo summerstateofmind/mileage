@@ -1,6 +1,6 @@
 import { findSessionSegmentEntries } from '../ingest/claude_code';
 import type { JsonlEntry } from '../ingest/claude_code';
-import type { JudgeInput, TrajectorySummary } from './types';
+import type { JudgeInput, TrajectorySummary, ActionStep } from './types';
 
 function textOf(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -13,8 +13,6 @@ function textOf(content: unknown): string {
   return '';
 }
 
-// User free-text only. tool_result blocks (which ride on role:user messages) are skipped,
-// and assistant messages are never read — so no assistant prose, code, or diffs leak out.
 export function extractPrompts(entries: JsonlEntry[]): string[] {
   const out: string[] = [];
   for (const e of entries) {
@@ -56,8 +54,55 @@ export function summarizeTrajectory(entries: JsonlEntry[]): TrajectorySummary {
   };
 }
 
+const BASH_SAFE_VERB_RE = /\b(test|build|lint|typecheck|git|install|run)\b/i;
+const ACTION_ARC_CAP = 40;
+
+export function extractActionArc(entries: JsonlEntry[], cap = ACTION_ARC_CAP): ActionStep[] {
+  const pending = new Map<string, { tool: string; file?: string }>();
+  const arc: ActionStep[] = [];
+
+  for (const e of entries) {
+    const content = e.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const c of content as any[]) {
+      if (c?.type === 'tool_use' && typeof c?.name === 'string') {
+        let toolLabel = c.name;
+        let file: string | undefined;
+
+        if ((c.name === 'Edit' || c.name === 'Write' || c.name === 'Read') && typeof c.input?.file_path === 'string') {
+          file = c.input.file_path;
+        }
+        if (c.name === 'Bash' && typeof c.input?.command === 'string') {
+          const verb = c.input.command.match(BASH_SAFE_VERB_RE);
+          if (verb) toolLabel = `Bash ${verb[1].toLowerCase()}`;
+        }
+
+        if (typeof c.id === 'string') {
+          pending.set(c.id, { tool: toolLabel, file });
+        }
+      } else if (c?.type === 'tool_result') {
+        const id = c.tool_use_id;
+        const info = typeof id === 'string' ? pending.get(id) : undefined;
+        if (info) {
+          const step: ActionStep = { tool: info.tool, outcome: c.is_error === true ? 'fail' : 'ok' };
+          if (info.file) step.file = info.file;
+          arc.push(step);
+          pending.delete(id);
+        }
+      }
+    }
+  }
+
+  return arc.slice(-cap);
+}
+
 export function buildJudgeInput(sessionId: string, segIdx: number): JudgeInput | null {
   const entries = findSessionSegmentEntries(sessionId, segIdx);
   if (!entries) return null;
-  return { prompts: extractPrompts(entries), trajectory: summarizeTrajectory(entries) };
+  return {
+    prompts: extractPrompts(entries),
+    trajectory: summarizeTrajectory(entries),
+    action_arc: extractActionArc(entries),
+  };
 }

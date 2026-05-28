@@ -1,24 +1,24 @@
-import type { JudgeInput, JudgeModel, JudgeResult, Verdict } from './types';
+import type { JudgeInput, JudgeModel, JudgeResult, Tier } from './types';
 import { buildJudgePrompt } from './prompt';
 
-const UNCERTAIN: JudgeResult = { verdict: 'uncertain', confidence: 0, rationale: 'judge unavailable' };
-const VERDICTS: Verdict[] = ['productive', 'spinning', 'uncertain'];
+const UNRATED: JudgeResult = { tier: 'unrated', confidence: 0, rationale: 'judge unavailable' };
+const TIERS: Tier[] = ['high', 'solid', 'thin', 'stalled', 'unrated'];
 
 export function parseVerdict(text: string): JudgeResult {
   const m = text.match(/\{[\s\S]*\}/);
-  if (!m) return UNCERTAIN;
+  if (!m) return UNRATED;
   let obj: any;
   try {
     obj = JSON.parse(m[0]);
   } catch {
-    return UNCERTAIN;
+    return UNRATED;
   }
-  if (!VERDICTS.includes(obj.verdict)) return UNCERTAIN;
+  if (!TIERS.includes(obj.tier)) return UNRATED;
   const conf = Number(obj.confidence);
   return {
-    verdict: obj.verdict,
+    tier: obj.tier,
     confidence: Number.isFinite(conf) ? Math.max(0, Math.min(1, conf)) : 0,
-    rationale: typeof obj.rationale === 'string' ? obj.rationale.slice(0, 120) : '',
+    rationale: typeof obj.rationale === 'string' ? obj.rationale.slice(0, 140) : '',
   };
 }
 
@@ -53,11 +53,11 @@ export async function runJudge(
   input: JudgeInput,
   transport: JudgeTransport,
 ): Promise<JudgeResult> {
-  if (model.kind === 'off') return UNCERTAIN;
+  if (model.kind === 'off') return UNRATED;
   try {
     const text = await transport(model.model, buildJudgePrompt(input));
     return parseVerdict(text);
   } catch {
-    return UNCERTAIN;
+    return UNRATED;
   }
 }

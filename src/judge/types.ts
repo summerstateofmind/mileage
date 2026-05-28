@@ -1,7 +1,7 @@
-export type Verdict = 'productive' | 'spinning' | 'uncertain';
+export type Tier = 'high' | 'solid' | 'thin' | 'stalled' | 'unrated';
 
 export interface JudgeResult {
-  verdict: Verdict;
+  tier: Tier;
   confidence: number;
   rationale: string;
 }
@@ -22,7 +22,14 @@ export interface TrajectorySummary {
   bash_count: number;
 }
 
+export interface ActionStep {
+  tool: string;
+  file?: string;
+  outcome: 'ok' | 'fail';
+}
+
 export interface JudgeInput {
   prompts: string[];
   trajectory: TrajectorySummary;
+  action_arc: ActionStep[];
 }

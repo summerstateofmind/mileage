@@ -18,7 +18,25 @@ import type {
 export function openDb(): DatabaseSync {
   const db = new DatabaseSync(mileageDbPath());
   db.exec(SCHEMA_SQL);
-  db.exec("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')");
+
+  const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | undefined;
+  const version = row?.value ?? null;
+
+  if (version === '1') {
+    db.exec('DROP TABLE IF EXISTS session_verdicts');
+    db.exec(
+      `CREATE TABLE session_verdicts (
+        session_id  TEXT PRIMARY KEY,
+        tier        TEXT NOT NULL CHECK (tier IN ('high','solid','thin','stalled','unrated')),
+        confidence  REAL NOT NULL,
+        model       TEXT NOT NULL,
+        rationale   TEXT,
+        judged_at   INTEGER NOT NULL
+      )`,
+    );
+  }
+
+  db.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')");
   return db;
 }
 
@@ -676,7 +694,7 @@ export function getProjectNameMap(db: DatabaseSync): Map<string, string> {
 
 export interface SessionVerdictRow {
   session_id: string;
-  verdict: string;
+  tier: string;
   confidence: number;
   model: string;
   rationale: string | null;
@@ -686,9 +704,9 @@ export interface SessionVerdictRow {
 export function insertVerdict(db: DatabaseSync, v: SessionVerdictRow): void {
   db.prepare(
     `INSERT OR REPLACE INTO session_verdicts
-     (session_id, verdict, confidence, model, rationale, judged_at)
+     (session_id, tier, confidence, model, rationale, judged_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(v.session_id, v.verdict, v.confidence, v.model, v.rationale, v.judged_at);
+  ).run(v.session_id, v.tier, v.confidence, v.model, v.rationale, v.judged_at);
 }
 
 export function getVerdict(db: DatabaseSync, sessionId: string): SessionVerdictRow | null {
@@ -721,7 +739,7 @@ export function getJudgedSessionIds(db: DatabaseSync): Set<string> {
 
 export interface VerdictListRow {
   session_id: string;
-  verdict: string;
+  tier: string;
   confidence: number;
   rationale: string | null;
   start_ts: number | null;
@@ -729,13 +747,11 @@ export interface VerdictListRow {
   tokens: number;
 }
 
-// Verdict session_ids are the composite `origSessionId:segmentIndex`, which is
-// exactly how session events are keyed too — join directly for context.
 export function getAllVerdicts(db: DatabaseSync): VerdictListRow[] {
   return db
     .prepare(
       `SELECT v.session_id AS session_id,
-              v.verdict AS verdict,
+              v.tier AS tier,
               v.confidence AS confidence,
               v.rationale AS rationale,
               MIN(e.timestamp) AS start_ts,

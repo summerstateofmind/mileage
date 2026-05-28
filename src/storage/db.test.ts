@@ -8,6 +8,7 @@ import type { SessionEvent } from './types';
 function memDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(SCHEMA_SQL);
+  db.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')");
   return db;
 }
 
@@ -63,15 +64,30 @@ test('preceding: returns same-project sessions ended within the window before th
   );
 });
 
-test('verdict insert/get/getMany/purge round-trips', () => {
+test('verdict insert/get/getMany/purge round-trips with tier', () => {
   const db = memDb();
-  insertVerdict(db, { session_id: 's1', verdict: 'spinning', confidence: 0.82, model: 'qwen2.5:3b', rationale: 'looped on regex', judged_at: 100 });
+  insertVerdict(db, { session_id: 's1', tier: 'stalled', confidence: 0.82, model: 'qwen2.5:3b', rationale: 'looped on regex', judged_at: 100 });
   const v = getVerdict(db, 's1');
-  assert.equal(v?.verdict, 'spinning');
+  assert.equal(v?.tier, 'stalled');
   assert.equal(v?.confidence, 0.82);
   const m = getVerdictsForSessions(db, ['s1', 's2']);
   assert.equal(m.get('s1')?.model, 'qwen2.5:3b');
   assert.equal(m.has('s2'), false);
   purgeVerdicts(db);
   assert.equal(getVerdict(db, 's1'), null);
+});
+
+test('verdict rejects disallowed tier value', () => {
+  const db = memDb();
+  assert.throws(() => {
+    insertVerdict(db, { session_id: 's1', tier: 'productive', confidence: 0.9, model: 'm', rationale: '', judged_at: 100 });
+  });
+});
+
+test('each valid tier inserts without error', () => {
+  const db = memDb();
+  for (const tier of ['high', 'solid', 'thin', 'stalled', 'unrated']) {
+    insertVerdict(db, { session_id: `s-${tier}`, tier, confidence: 0.5, model: 'm', rationale: '', judged_at: 100 });
+    assert.equal(getVerdict(db, `s-${tier}`)?.tier, tier);
+  }
 });
