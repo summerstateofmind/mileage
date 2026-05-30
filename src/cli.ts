@@ -17,7 +17,8 @@ import { renderHeatmap } from './render/heatmap';
 import { projectHashFromCwd } from './storage/paths';
 import { readConfig, setPlan, VALID_PLANS, addExcludedRepo, removeExcludedRepo, setJudgeEnabled, setJudgeCloud } from './config/plan';
 import { runJudgePass } from './judge/run_pass';
-import { completionScript } from './cli/completion';
+import { completionScript, detectShell, normalizeShell, type Shell } from './cli/completion';
+import { installCompletion, uninstallCompletion, reloadHint } from './cli/completion_install';
 import { selectJudgeModel } from './judge/detect';
 import { purgeVerdicts, getAllVerdicts, getProjectNameMap } from './storage/db';
 import * as readline from 'node:readline';
@@ -684,20 +685,70 @@ program
     db.close();
   });
 
+function resolveShell(explicit?: string): Shell | null {
+  if (explicit) return normalizeShell(explicit);
+  return detectShell(process.platform, process.env.SHELL);
+}
+
+function printCompletion(shell: string): void {
+  const script = completionScript(
+    shell,
+    program.commands.map((c) => c.name()),
+  );
+  if (!script) {
+    console.error(`Unknown shell "${shell}". Use: pwsh | bash | zsh.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(script);
+}
+
 program
-  .command('completion <shell>')
-  .description('Print a shell completion script (shell: pwsh | bash | zsh)')
-  .action((shell: string) => {
-    const script = completionScript(
-      shell,
-      program.commands.map((c) => c.name()),
-    );
-    if (!script) {
-      console.error(`Unknown shell "${shell}". Use: pwsh | bash | zsh.`);
+  .command('completion [action] [shell]')
+  .description(
+    'Shell completion. `completion <shell>` prints the script; `completion install [shell]` wires it into your profile; `completion uninstall [shell]` removes it. shell: pwsh | bash | zsh.',
+  )
+  .action((action: string | undefined, shellArg: string | undefined) => {
+    if (action === 'install' || action === 'uninstall') {
+      const shell = resolveShell(shellArg);
+      if (!shell) {
+        console.error(
+          "Couldn't detect your shell. Pass one explicitly: pwsh | bash | zsh.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const outcome =
+        action === 'install' ? installCompletion(shell) : uninstallCompletion(shell);
+      if (outcome.error) {
+        console.error(outcome.error);
+        process.exitCode = 1;
+        return;
+      }
+      if (action === 'install') {
+        if (outcome.changed) {
+          console.log(`${green('✓')} Added mileage completion to ${bold(outcome.path)}.`);
+          console.log(dim(`  Reload it now: ${reloadHint(shell, outcome.path)}`));
+        } else {
+          console.log(dim(`Already installed in ${outcome.path}. No change.`));
+        }
+      } else {
+        console.log(
+          outcome.changed
+            ? `${green('✓')} Removed mileage completion from ${bold(outcome.path)}.`
+            : dim(`No mileage completion block found in ${outcome.path}. No change.`),
+        );
+      }
+      return;
+    }
+
+    // No action keyword → treat the first arg as the shell to print for.
+    if (!action) {
+      console.error('Usage: mileage completion <pwsh|bash|zsh> | completion install [shell]');
       process.exitCode = 1;
       return;
     }
-    console.log(script);
+    printCompletion(action);
   });
 
 program.parseAsync(process.argv).catch((e) => {
