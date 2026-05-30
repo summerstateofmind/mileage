@@ -3,7 +3,7 @@ name: "mileage"
 description: "Reference and act on the user's Mileage data (AI tool spend, token usage, YPT, code survival, rate-limit caps). Triggers when the user mentions: cost, AI bill, tokens, token usage, what they spent, how much they're paying, Opus vs Sonnet, which model to use, YPT, yield per token, code survival, waste sessions, rate limits, hitting the cap, /usage, plan utilization, save usage, save money. ALSO triggers proactively at the start of any long or expensive request: check cap usage first and warn at >=50% / >=75%. For Max/Pro users (flat-rate plans) suggest cheaper model BEFORE the call if the task looks like exploration/research."
 license: MIT
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: Mileage
   category: developer-tools
 ---
@@ -22,7 +22,7 @@ The user's plan determines what they care about. Call `show` first to get `plan`
 
 | Plan | What they care about | What to talk about | What to NEVER say |
 |---|---|---|---|
-| `max-100`, `max-200`, `pro` | Flat-rate. Not hitting the 5h/7d cap. Shipping more per token. | Cap headroom (%, time to reset), yield per token, waste sessions, model-yield comparison | "$ savings", "money saved", "cheaper" framing, "your bill was lower" |
+| `max-100`, `max-200`, `pro` | Flat-rate. Not hitting the 5h/7d cap. Shipping more per token. | Token volume in the window, rate-limit hits (the real "hit the wall" signal), yield per token, waste sessions, model-yield comparison | "$ savings", "money saved", "cheaper" framing, "your bill was lower", AND any cap **percentage** or invented reset time — Mileage doesn't compute those |
 | `api` | Pay-per-token. Total $ spent. $/commit. | Dollar spend, Cost-per-Ship, $ saved if shifting work to a cheaper model | n/a |
 | `unknown` | They haven't set a plan. | Pause and ask them to set one via `mileage config:set-plan` | n/a |
 
@@ -38,7 +38,7 @@ Examples:
 - `**Right now:** run \`/model sonnet\` and retry this question.`
 - `**Right now:** run \`mileage tag\` and mark session 9f7ecd4a as dead-end.`
 - `**Right now:** pause this conversation for ~4h until your 5h window resets.`
-- `**Right now:** nothing — you're at 12% of cap, plenty of room.`
+- `**Right now:** nothing — no rate-limit hits this week and volume is normal.`
 
 If you find yourself writing a numbered list of "tips," delete it and pick the single highest-leverage move.
 
@@ -66,7 +66,12 @@ At the start of ANY of these, call `usage_check`:
 - User explicitly requested Opus or extended thinking
 - Any task you estimate will run >10 min
 
-If `warning_level` is `soft` or higher, prepend the warning template (below) BEFORE doing the work.
+`usage_check` returns token volume (5h/7d), a heavy-day baseline, and `recent_rate_limit_hits`. It does NOT return a cap % or warning level — those don't exist. Decide whether to warn from real signals:
+- **`recent_rate_limit_hits > 0`** → the user actually hit the wall in the last 7d. Prepend the rate-limit-hit template before heavy work.
+- **`seven_day.tokens_used` is at/above their `typical_heavy_day_tokens` baseline several times over** → they're in a heavy stretch; mention it and point to `/usage`.
+- Otherwise → no cap warning. Proceed.
+
+NEVER state a cap percentage, "X% of your cap," or a specific reset time. Mileage cannot compute them and Anthropic doesn't publish them. The only authority is `/usage` — tell the user to run it.
 
 ### B. Pre-flight model recommendation (Max/Pro plans only)
 For users on a flat-rate plan, if the task looks like one of these and the user is using Opus by default, suggest a cheaper model BEFORE you start:
@@ -83,23 +88,19 @@ Skip this for: implementation passes the user explicitly wants Opus for, debuggi
 
 ## Templates
 
-### Cap warning — soft (≥50%)
+### Rate-limit hit (recent_rate_limit_hits > 0)
 ```
-⚠ You're at **{pct}%** of your estimated 5h cap ({tokens_used} of ~{cap_estimate}). 
-This task could push you over. Want to switch to Sonnet for this one?
-```
-
-### Cap warning — strong (≥75%)
-```
-🛑 You're at **{pct}%** of your estimated 5h cap. This task is likely to hit the limit mid-run.
-**Right now:** run `/model sonnet` for this request, OR pause until ~{ms_until_reset_human} when the window resets.
+⚠ You've hit Anthropic's rate limit **{recent_rate_limit_hits}×** in the last 7 days — you're running into the cap. This task could hit it again mid-run.
+**Right now:** run `/usage` to see exact remaining headroom and reset time, then decide whether to switch to `/model sonnet` for this one.
 ```
 
-### Cap warning — over (≥100%)
+### Heavy stretch (volume well above the heavy-day baseline, no hits yet)
 ```
-⛔ Past your estimated 5h cap. New requests likely to fail or queue. Resets in ~{ms_until_reset_human}.
-**Right now:** pause heavy work until reset.
+Heads up: your 7d token volume ({seven_day_tokens}) is well above your typical heavy day ({typical_heavy_day_tokens}). No rate-limit hits yet, but you're in a heavy stretch.
+**Right now:** run `/usage` to check your real headroom before this one.
 ```
+
+Never invent a percentage or a reset time. `/usage` is the only source for those.
 
 ### Pre-flight model swap (Max/Pro user, exploration-ish task)
 ```
@@ -110,8 +111,8 @@ Sonnet handles this kind of task with comparable shipping rate at lower cap burn
 **Right now:** run `/model sonnet` and resend your question. If Sonnet stalls, fall back to Opus.
 ```
 
-### Caveat (include once per conversation)
-> (Cap estimates are community-approximated. For live exact cap usage, run `/usage` in Claude Code.)
+### Caveat (include once per conversation, whenever cap/headroom comes up)
+> (Mileage tracks token volume and rate-limit hits, not Anthropic's cap %. For exact remaining headroom and reset time, run `/usage` in Claude Code.)
 
 ## Common questions — response patterns
 

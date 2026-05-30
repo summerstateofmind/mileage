@@ -49,9 +49,9 @@ Always-on safety net for cap pressure. Fires desktop notifications when the user
 #### Cap-threshold trigger (ship first)
 - [ ] **0.4.5.1** — `mileage watch` daemon command (polls every 5 min, runs until Ctrl-C)
 - [ ] **0.4.5.2** — Cross-platform desktop notification (`node-notifier`)
-- [ ] **0.4.5.3** — Fire on `usage_check.warning_level` transitions: `→ strong` (≥75%), `→ over` (≥100%). One-shot per window — don't refire on the same threshold within the same 5h window.
+- [ ] **0.4.5.3** — Fire on honest signals, NOT a cap % (Mileage doesn't compute one — see `computeUsageCheck`): (a) a new clustered `recent_rate_limit_hits` event since last poll, and (b) 7d token volume crossing a multiple of the heavy-day p90 baseline. One-shot per event — don't refire on the same event.
 - [ ] **0.4.5.4** — Plan filter: skip when `plan` is `api`, `unknown`, `cursor-pro`, `copilot`
-- [ ] **0.4.5.5** — Notification content: single line with concrete action, e.g. "Mileage: 78% of 5h cap. Switch to /model sonnet or pause until 4:15pm."
+- [ ] **0.4.5.5** — Notification content: single line with concrete action, e.g. "Mileage: you just hit Anthropic's rate limit. Run /usage, then /model sonnet or pause." Never invent a % or reset time.
 - [ ] **0.4.5.6** — `mileage config:set-quiet-hours 22-07` to suppress notifications overnight
 
 #### Velocity trigger (ship after dogfooding the cap trigger)

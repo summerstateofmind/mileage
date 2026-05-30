@@ -26,7 +26,7 @@ import { runReviewFlow } from './cli/review';
 import { installPostCommitHook, uninstallPostCommitHook } from './cli/hook';
 import { runFirstRunWizard, needsFirstRun } from './cli/first_run';
 import { bold, cyan, dim, green, magenta, red, yellow } from './render/ansi';
-import { computeUsageCheck, fmtMsDuration } from './compute/usage';
+import { computeUsageCheck } from './compute/usage';
 import { buildShowJson } from './render/show_json';
 import type { Plan } from './storage/types';
 
@@ -338,12 +338,8 @@ function renderUsageCheck(usage: ReturnType<typeof computeUsageCheck>): void {
   lines.push(bold('Mileage cap check') + dim('  ·  plan: ' + usage.plan));
   lines.push('');
   for (const win of [usage.five_hour, usage.seven_day]) {
-    const reset =
-      win.ms_until_reset === null
-        ? ''
-        : dim('  · window resets in ~' + fmtMsDuration(win.ms_until_reset));
     lines.push(
-      `  ${win.window_label.padEnd(4)} ${win.tokens_used.toLocaleString().padStart(13)} tokens used${reset}`,
+      `  ${win.window_label.padEnd(4)} ${win.tokens_used.toLocaleString().padStart(13)} tokens used`,
     );
   }
   lines.push('');
@@ -355,6 +351,12 @@ function renderUsageCheck(usage: ReturnType<typeof computeUsageCheck>): void {
     );
     lines.push('');
   }
+  const hitLine =
+    usage.recent_rate_limit_hits > 0
+      ? `  ${magenta(bold('⚠'))} ${usage.recent_rate_limit_hits} rate-limit hit${usage.recent_rate_limit_hits === 1 ? '' : 's'} in the last 7d — you hit the wall recently.`
+      : dim('  No rate-limit hits in the last 7d.');
+  lines.push(hitLine);
+  lines.push('');
   lines.push(
     '  ' + magenta(bold('→')) + ' For exact, live cap usage, run ' + bold('/usage') + ' inside Claude Code.',
   );

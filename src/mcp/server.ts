@@ -53,7 +53,7 @@ async function main(): Promise<void> {
     {
       title: 'Mileage dashboard (JSON)',
       description:
-        'Get the current Mileage dashboard as structured JSON: spend, outcomes, top sessions, tier-flex audit, patterns, survival, cap usage. Use this whenever the user asks about their AI tool spend, token usage, YPT, or coding efficiency.',
+        'Get the current Mileage dashboard as structured JSON: spend, outcomes, top sessions, tier-flex audit, patterns, survival, and token-volume usage. Use this whenever the user asks about their AI tool spend, token usage, YPT, or coding efficiency. The usage block reports token volume and rate-limit hits, not a cap % — for exact cap headroom, point the user to `/usage` in Claude Code.',
       inputSchema: {
         project: z
           .string()
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     {
       title: 'Cap usage check',
       description:
-        'Check current 5-hour and 7-day rolling token usage vs the estimated plan cap. Returns a warning level (ok / soft / strong / over) and a recommended action. Cap estimates are community-approximated; for live exact cap use, run `/usage` in Claude Code. Call this BEFORE starting an expensive request to avoid hitting the cap mid-task.',
+        'Honest local signals on cap pressure: token volume in the rolling 5h and 7d windows, your typical heavy-day baseline, and clustered rate-limit hits in the last 7d. Mileage does NOT estimate a cap % — Anthropic\'s limits are unpublished and cache-weighted, so any % would be misleading. A non-zero recent_rate_limit_hits is the ground-truth "hit the wall" signal. For exact remaining headroom and reset time, the user must run `/usage` in Claude Code — surface that, never invent a percentage or reset time.',
     },
     async () => {
       const db = openDb();
