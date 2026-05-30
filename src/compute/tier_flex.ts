@@ -26,7 +26,10 @@ export interface TierFlexResult {
 export function computeTierFlex(
   db: DatabaseSync,
   sinceMs: number,
+  projectHash?: string,
 ): TierFlexResult {
+  const projectClause = projectHash ? 'AND project_hash = ?' : '';
+  const params: unknown[] = projectHash ? [sinceMs, projectHash] : [sinceMs];
   const rows = db
     .prepare(
       `SELECT
@@ -38,13 +41,14 @@ export function computeTierFlex(
        FROM events
        WHERE type = 'session'
          AND timestamp >= ?
+         ${projectClause}
          AND model_id IS NOT NULL
          AND model_id <> 'unknown'
        GROUP BY model_id
        HAVING COUNT(*) >= 5
        ORDER BY total_cost DESC`,
     )
-    .all(sinceMs) as any[];
+    .all(...(params as never[])) as any[];
 
   const tierFlexRows: TierFlexRow[] = rows.map((r) => ({
     model_id: String(r.model_id),

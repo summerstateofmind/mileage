@@ -641,10 +641,14 @@ program
       const now = Date.now();
       const r = await runJudgePass(db, cfg, now - 30 * 86400_000, now, !!opts.refresh);
       if (r.skipped_unavailable) {
-        console.log(yellow('No model available: ') + r.model);
-      } else {
+        console.log(yellow('No judge model available: ') + r.model);
+        console.log(dim('Set one up: `mileage judge:set-cloud <endpoint> <model>`, or run Ollama locally.'));
+      } else if (r.judged > 0) {
         console.log(`Judged ${r.judged} session(s) with ${r.model}.`);
-        if (r.judged > 0) console.log(dim('Review them with `mileage judge:list`.'));
+        console.log(dim('Review them with `mileage judge:list`.'));
+      } else {
+        console.log('No new sessions to judge.');
+        console.log(dim('Nothing qualified (high-effort, no-commit) since the last pass. See prior verdicts with `mileage judge:list`.'));
       }
     } finally {
       db.close();

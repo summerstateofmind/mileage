@@ -87,8 +87,8 @@ export function buildShowJson(
   const priorAgg = aggregate(prior);
   const topSessions = getTopExpensiveSessions(db, currStart, 5, projectHash);
   const rateHits = clusterRateLimitHits(getRateLimitHitsSince(db, currStart));
-  const tierFlex = computeTierFlex(db, now - 30 * 86400_000);
-  const patterns = detectPatterns(db, now - 30 * 86400_000);
+  const tierFlex = computeTierFlex(db, now - 30 * 86400_000, projectHash);
+  const patterns = detectPatterns(db, now - 30 * 86400_000, projectHash);
   const survival = getSurvivalSummariesSince(db, currStart, projectHash);
   const nameMap = getProjectNameMap(db);
   const usage = computeUsageCheck(db, cfg.plan);

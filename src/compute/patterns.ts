@@ -13,7 +13,13 @@ interface SessionRow {
   attr_count: number;
 }
 
-function loadSessions(db: DatabaseSync, sinceMs: number): SessionRow[] {
+function loadSessions(
+  db: DatabaseSync,
+  sinceMs: number,
+  projectHash?: string,
+): SessionRow[] {
+  const projectClause = projectHash ? 'AND e.project_hash = ?' : '';
+  const params: unknown[] = projectHash ? [sinceMs, projectHash] : [sinceMs];
   return db
     .prepare(
       `SELECT
@@ -24,9 +30,10 @@ function loadSessions(db: DatabaseSync, sinceMs: number): SessionRow[] {
        FROM events e
        WHERE e.type = 'session'
          AND e.timestamp >= ?
+         ${projectClause}
          AND e.cost_usd > 0`,
     )
-    .all(sinceMs) as unknown as SessionRow[];
+    .all(...(params as never[])) as unknown as SessionRow[];
 }
 
 function shortModel(m: string): string {
@@ -181,8 +188,9 @@ function modelOutcomeMix(sessions: SessionRow[]): PatternFinding | null {
 export function detectPatterns(
   db: DatabaseSync,
   sinceMs: number,
+  projectHash?: string,
 ): PatternFinding[] {
-  const sessions = loadSessions(db, sinceMs);
+  const sessions = loadSessions(db, sinceMs, projectHash);
   if (sessions.length < 10) return [];
 
   const findings: PatternFinding[] = [];

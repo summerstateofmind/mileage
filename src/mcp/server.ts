@@ -14,7 +14,24 @@ import { detectPatterns } from '../compute/patterns';
 import { getTopExpensiveSessions, getRateLimitHitsSince } from '../storage/db';
 import { clusterRateLimitHits } from '../ingest/rate_limits';
 import { renderExplain } from '../render/show';
+import { projectHashFromCwd } from '../storage/paths';
 import type { SessionTag } from '../storage/types';
+
+// A `project` arg may be an explicit project hash, the literal "cwd" (auto-detect
+// the repo the MCP server is running in — normally the same dir Claude Code is in),
+// or omitted for all projects.
+function resolveProject(project?: string): string | undefined {
+  if (!project) return undefined;
+  if (project === 'cwd') return projectHashFromCwd();
+  return project;
+}
+
+const PROJECT_ARG = z
+  .string()
+  .optional()
+  .describe(
+    'Project scope: a project hash (see `projects`), or "cwd" to auto-detect the current repo. Omit for all projects.',
+  );
 
 function jsonContent(value: unknown) {
   return {
@@ -55,10 +72,7 @@ async function main(): Promise<void> {
       description:
         'Get the current Mileage dashboard as structured JSON: spend, outcomes, top sessions, tier-flex audit, patterns, survival, and token-volume usage. Use this whenever the user asks about their AI tool spend, token usage, YPT, or coding efficiency. The usage block reports token volume and rate-limit hits, not a cap % — for exact cap headroom, point the user to `/usage` in Claude Code.',
       inputSchema: {
-        project: z
-          .string()
-          .optional()
-          .describe('Project hash to filter to. Omit for all-projects view.'),
+        project: PROJECT_ARG,
         days: z
           .number()
           .int()
@@ -77,7 +91,7 @@ async function main(): Promise<void> {
       try {
         const data = buildShowJson(
           db,
-          args.project,
+          resolveProject(args.project),
           args.days ?? 7,
           !!args.calendar_week,
         );
@@ -145,7 +159,7 @@ async function main(): Promise<void> {
           .max(50)
           .optional()
           .describe('Max sessions to return. Default 5.'),
-        project: z.string().optional().describe('Project hash filter.'),
+        project: PROJECT_ARG,
       },
     },
     async (args) => {
@@ -156,7 +170,7 @@ async function main(): Promise<void> {
           db,
           sinceMs,
           args.limit ?? 5,
-          args.project,
+          resolveProject(args.project),
         );
         return jsonContent({ sessions: rows });
       } finally {
@@ -179,13 +193,14 @@ async function main(): Promise<void> {
           .max(365)
           .optional()
           .describe('Window in days. Default 30.'),
+        project: PROJECT_ARG,
       },
     },
     async (args) => {
       const db = openDb();
       try {
         const sinceMs = Date.now() - (args.days ?? 30) * 86_400_000;
-        return jsonContent(computeTierFlex(db, sinceMs));
+        return jsonContent(computeTierFlex(db, sinceMs, resolveProject(args.project)));
       } finally {
         db.close();
       }
@@ -206,14 +221,16 @@ async function main(): Promise<void> {
           .max(365)
           .optional()
           .describe('Window in days for inclusion. Default 7.'),
-        project: z.string().optional().describe('Project hash filter.'),
+        project: PROJECT_ARG,
       },
     },
     async (args) => {
       const db = openDb();
       try {
         const sinceMs = Date.now() - (args.days ?? 7) * 86_400_000;
-        return jsonContent(getSurvivalSummariesSince(db, sinceMs, args.project));
+        return jsonContent(
+          getSurvivalSummariesSince(db, sinceMs, resolveProject(args.project)),
+        );
       } finally {
         db.close();
       }
@@ -226,11 +243,20 @@ async function main(): Promise<void> {
       title: 'Behavioral patterns',
       description:
         'Detect waste patterns and behavioral findings over the last 30 days: time-of-day yield, day-of-week cost, model-vs-outcome correlations, recurring expensive-zero-commit sessions.',
+      inputSchema: {
+        project: PROJECT_ARG,
+      },
     },
-    async () => {
+    async (args) => {
       const db = openDb();
       try {
-        return jsonContent({ patterns: detectPatterns(db, Date.now() - 30 * 86_400_000) });
+        return jsonContent({
+          patterns: detectPatterns(
+            db,
+            Date.now() - 30 * 86_400_000,
+            resolveProject(args.project),
+          ),
+        });
       } finally {
         db.close();
       }
@@ -275,6 +301,7 @@ async function main(): Promise<void> {
           .max(50)
           .optional()
           .describe('Max sessions. Default 10.'),
+        project: PROJECT_ARG,
       },
     },
     async (args) => {
@@ -282,7 +309,12 @@ async function main(): Promise<void> {
       try {
         const cfg = readConfig();
         const sinceMs = Date.now() - (args.days ?? 14) * 86_400_000;
-        const sessions = getTopExpensiveSessions(db, sinceMs, args.limit ?? 10);
+        const sessions = getTopExpensiveSessions(
+          db,
+          sinceMs,
+          args.limit ?? 10,
+          resolveProject(args.project),
+        );
         const waste = sessions.filter(
           (s) =>
             s.attr_count === 0 && s.cost_usd >= cfg.preferences.waste_threshold_usd,
